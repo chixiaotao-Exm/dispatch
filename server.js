@@ -713,8 +713,8 @@ const voice = LLM_ON ? require('./voice.js')({
   asrFile: path.join(path.dirname(STATE_FILE), 'voice-asr.json'),
   // 打电话时可选的"快速接话"：用备用模型（走中转站，通常一两秒）代替主模型来回答。默认关着，主人在识别设置里开。
   ceoStream: CEO_STREAM_ON() ? ceoStream : null, ceoWarm: CEO_STREAM_ON() ? ceoWarm : null,
-  fastCall: CEO_BACKUP ? (system, user, maxTokens) => llmCall(CEO_BACKUP, system, user, maxTokens) : null,
-  fastModel: CEO_BACKUP ? showModel(CEO_BACKUP) : '', mainModel: showModel(CEO_MODEL),   // 语音识别的设置（主人在页面上填的豆包密钥和自定义词）
+  // "通话时用更快的模型接话"已经撤掉：主人只要 CEO 的主模型接电话（那个备用模型实测反而要十几秒）。这里不再把它交给通话模块，页面上的开关也就不显示了。
+  fastCall: null, fastModel: '', mainModel: showModel(CEO_MODEL),   // 语音识别的设置（主人在页面上填的豆包密钥和自定义词）
 }) : null;
 if (voice) setInterval(() => voice.tick(), 4000);
 const server = http.createServer(async (req, res) => {

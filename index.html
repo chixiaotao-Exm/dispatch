@@ -1790,7 +1790,7 @@ function paintVoice(d) {
   voiceKey = key;
   const isBot = (m) => m.kind === 'bot' || (m.ref && m.ref.kind === 'bot');
   const go = (m) => `<div class="go"><button class="btn" data-term="${isBot(m) ? 'bots' : 'tasks'}" data-open-only>去${isBot(m) ? ' Bot 对话' : '任务'}里看全部</button></div>`;
-  const STATE = { running: ['', '对方正在做，做完会告诉你'], done: ['ok', '已经做完'], failed: ['bad', '没有做成'], unknown: ['', '没有等到结果，去对应的页面看'] };
+  const STATE = { stopped: ['', '已经叫停'], running: ['', '对方正在做，做完会告诉你'], done: ['ok', '已经做完'], failed: ['bad', '没有做成'], unknown: ['', '没有等到结果，去对应的页面看'] };
   $('voiceList').innerHTML = (items.length ? items.map((m) => {
     if (m.role === 'me') return `<div class="vm me"><div class="bub">${esc(m.text)}</div></div>`;
     if (m.role === 'result') return `<div class="vm"><div class="who">${esc(m.from || '')} · ${m.ok ? '做完了' : '没做成'}</div><div class="bub res">${esc(m.text)}</div>${go(m)}</div>`;
@@ -2409,6 +2409,11 @@ $('termReload').addEventListener('click', () => { PANES[pane].frame.src = PANES[
 // 每次桌面加载好之后，抢在它前面把这一种提示拦掉；别的真正的错误照常显示。
 $('deskpcFrame').addEventListener('load', () => {
   try { $('deskpcFrame').contentWindow.addEventListener('error', (e) => { if (/ResizeObserver loop/i.test(String(e.message || ''))) { e.stopImmediatePropagation(); e.preventDefault(); } }, true); } catch (e) { /* 桌面没加载出来 */ }
+  // 上面那一步有时拦不住（远程桌面程序的处理排在前面）：再盯着那个红框，里面是这一种提示就立刻收起来。
+  try {
+    const f = $('deskpcFrame'), box = f.contentDocument.getElementById('noVNC_fallback_error');
+    if (box) { const hide = () => { if (/ResizeObserver loop/i.test(box.textContent)) box.classList.remove('noVNC_open'); }; new f.contentWindow.MutationObserver(hide).observe(box, { attributes: true, childList: true, subtree: true }); hide(); }
+  } catch (e) { /* 桌面没加载出来 */ }
 });
 // 网页终端自带"重新加载此网站？"的离开提醒。终端的会话保存在服务器上，刷新或关掉页面都不会丢，
 // 所以每次终端加载好之后，抢在它前面把这个提醒拦掉。（文件和规则页面里"有没保存的修改"的提醒不受影响。）

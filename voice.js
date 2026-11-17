@@ -201,13 +201,16 @@ module.exports = function (ctx) {
 
   const PROMPT = `你是 CEO Agent。主人${ctx.ownerName ? '（' + ctx.ownerName + '）' : ''}正在调度台上对你说话。文字多半是语音识别出来的，可能有同音错字，按意思理解；实在听不明白就问他，不要猜着派活。
 你的工作是决定这句话由谁来办。只输出一个 JSON，不要输出别的：
-{"action":"reply 或 agent 或 bot","bot":"Bot 的名字，action 是 bot 时才填","say":"对主人说的一句话","followUp":false,"hangup":false,"look":[],"task":"交给对方的任务说明"}
+{"action":"reply 或 agent 或 bot 或 stop","bot":"Bot 的名字，action 是 bot 时才填（action 是 stop 时：要叫停的是 Bot 就填它的名字，是专用 Agent 就留空）","say":"对主人说的一句话","revise":false,"followUp":false,"hangup":false,"look":[],"task":"交给对方的任务说明"}
 各项就按上面这个顺序写（先想好再动笔：action 定下来之后紧接着写 say，因为 say 会在你写完其余各项之前就先念给主人听）。
 
 三种做法：
 - reply：你自己直接回答。适用于：问现在的运行情况（只用下面给你的监控数据回答，不要编造）、闲聊、问你能做什么、或者你需要先问清楚再派活。这时 say 就是你的回答，最多 200 字，task 留空。
 - agent：交给专用 Agent。它是一台有完整开发环境的 Linux 电脑上的 Claude，能写代码、处理文件、查资料、发邮件、发布网页；需要在主人的服务器上执行命令时会另外走审批。适合要分好几步完成的正事、写程序、和主人的服务器或文件有关的事。
 - bot：交给某个 Bot。Bot 有一台带浏览器和桌面的电脑，适合上网查东西、打开网页截图、画图出图、轻量的问答和杂事。从下面的 Bot 名单里按名字选一个；名单是空的或者都不合适就用 agent。主人点名要某个 Bot 时照办。
+
+- stop：主人要叫停、暂停、取消一件正在办的事（看下面给你的"正在办的事"）。这时不派新活，只让对方停下来；say 用一句话告诉主人已经叫停了谁。主人说的"暂停"也按叫停处理（停下来之后不能从中间接着做，要重新交代）。"正在办的事"是空的就用 reply 告诉他现在没有在办的事。
+revise：只在 action 是 bot 时有用。那个 Bot 正在忙，而且忙的正是主人刚才交给它的那件事，主人现在是在修改或补充这件事的要求（比如"找一个二十岁左右的""换成另一个网站"），就填 true：会让它先停下手上的，再按新的要求重新做。这时 task 必须写成修改之后的完整任务（原来的要求加上这次的修改），不能只写修改的那一句。主人交代的是另一件不相干的事，填 false。
 
 task 怎么写：把主人的要求完整、清楚地转述成一段任务说明，纠正明显的识别错字，补上从上文对话里能确定的指代（"刚才那个""它"）。不要添加主人没有提的要求，不要替他做他没做的决定。
 followUp：主人这句话是在接着上一件已经交给专用 Agent 的事往下说（修改、补充、追问）时填 true，这样会在原来那个任务的基础上继续；否则填 false。
@@ -230,9 +233,9 @@ hangup：只有正在通话时才有用。主人表示这通电话可以结束�
   function parse(text) {
     try {
       const j = JSON.parse(String(text).slice(String(text).indexOf('{'), String(text).lastIndexOf('}') + 1));
-      const action = ['reply', 'agent', 'bot'].includes(j.action) ? j.action : null;
+      const action = ['reply', 'agent', 'bot', 'stop'].includes(j.action) ? j.action : null;
       if (!action) return null;
-      return { action, bot: String(j.bot || '').trim(), followUp: j.followUp === true, hangup: j.hangup === true, look: (Array.isArray(j.look) ? j.look : []).filter((k) => ['site', 'srv', 'relay', 'music'].includes(k)).slice(0, 4), task: String(j.task || '').trim().slice(0, 6000), say: String(j.say || '').trim().slice(0, 600) };
+      return { action, revise: j.revise === true, bot: String(j.bot || '').trim(), followUp: j.followUp === true, hangup: j.hangup === true, look: (Array.isArray(j.look) ? j.look : []).filter((k) => ['site', 'srv', 'relay', 'music'].includes(k)).slice(0, 4), task: String(j.task || '').trim().slice(0, 6000), say: String(j.say || '').trim().slice(0, 600) };
     } catch (e) { return null; }
   }
 
@@ -262,6 +265,7 @@ hangup：只有正在通话时才有用。主人表示这通电话可以结束�
       最近的对话: log.slice(-9, -1).map((m) => ({ 谁: m.role === 'me' ? '主人' : m.role === 'result' ? m.from + '的结果' : 'CEO Agent' + (m.to ? '（交给了' + m.to + '）' : ''), 内容: clip(m.task || m.text, 400) })),
       Bot名单: botList.map((b) => ({ 名字: b.name, 设定: String(b.persona || '').slice(0, 120), 正在忙: Boolean(b.running) })),
       Bot情况: botErr || undefined,
+      正在办的事: log.filter((m) => m.state === 'running' && m.ref).map((m) => ({ 交给了: m.to, 任务: clip(m.task, 300) })),
       监控数据: ctx.briefInput ? ctx.briefInput() : undefined,
       当前简报: state.brief && state.brief.text ? state.brief.text : undefined,
     };
@@ -320,12 +324,40 @@ hangup：只有正在通话时才有用。主人表示这通电话可以结束�
       const d = await decide(text, inCall, onSay);
       hang = Boolean(inCall && d.hangup);
       look = d.action === 'reply' ? d.look || [] : [];
+      const findBot = (name) => { const want = String(name || '').toLowerCase(); return d.botList.find((b) => b.name.toLowerCase() === want) || (want && d.botList.find((b) => b.name.toLowerCase().includes(want))) || null; };
+      // 叫停一个 Bot：让它停手，等它真的停下来；之前交给它、还挂着"正在做"的记录标成"已叫停"，免得稍后把半截结果当成做完了念出来。
+      const stopBot = async (bot) => {
+        await bots('/api/stop', { bot: bot.id });
+        for (const m of log) if (m.state === 'running' && m.ref && m.ref.kind === 'bot' && m.ref.id === bot.id) m.state = 'stopped';
+        save();
+        for (let i = 0; i < 20; i++) {
+          const now = ((await bots('/api/state')).bots || []).find((b) => b.id === bot.id);
+          if (!now || !now.running) return true;
+          await new Promise((r) => setTimeout(r, 400));
+        }
+        return false;
+      };
+      if (d.action === 'stop') {
+        const bot = d.bot ? findBot(d.bot) : null;
+        if (bot) {
+          if (!bot.running) return say({ role: 'ceo', text: '「' + bot.name + '」现在没有在做事，不用叫停。' });
+          const ok = await stopBot(bot);
+          note({ verdict: 'dispatch', who: '', what: '主人口头叫停了 Bot「' + bot.name + '」正在做的事', reason: text.slice(0, 120) });
+          return say({ role: 'ceo', text: ok ? (d.say || '已经让「' + bot.name + '」停下来了。') : '已经叫「' + bot.name + '」停手，它还没完全停下来，稍等一下。' });
+        }
+        const job = log.slice().reverse().find((m) => m.state === 'running' && m.ref && m.ref.kind === 'agent');
+        if (!job || !tasksUrl) return say({ role: 'ceo', text: d.bot ? '没有找到叫「' + d.bot + '」的 Bot。' : '现在没有正在办的事，不用叫停。' });
+        await tasks('/api/stop?id=' + encodeURIComponent(job.ref.id), {});
+        job.state = 'stopped'; save();
+        note({ verdict: 'dispatch', who: '', what: '主人口头叫停了专用 Agent 正在做的事', reason: text.slice(0, 120) });
+        return say({ role: 'ceo', text: d.say || '已经让专用 Agent 停下来了。' });
+      }
       if (d.action === 'bot') {
-        const want = d.bot.toLowerCase();
-        const bot = d.botList.find((b) => b.name.toLowerCase() === want) || (want && d.botList.find((b) => b.name.toLowerCase().includes(want)));
+        const bot = findBot(d.bot);
         if (!bot) d.action = 'agent';   // 没有这个 Bot：改交给专用 Agent
-        else if (bot.running) return say({ role: 'ceo', text: '这件事适合交给「' + bot.name + '」，但它正在忙别的。等它做完再说一遍，或者告诉我换一个人做。' });
+        else if (bot.running && !d.revise) return say({ role: 'ceo', text: '「' + bot.name + '」正在忙别的事。要它先停下来改做这件，就跟我说“让它停下来”；或者等它做完再说，也可以换一个人做。' });
         else {
+          if (bot.running && !(await stopBot(bot))) return say({ role: 'ceo', text: '我叫「' + bot.name + '」先停手，它还没停下来。稍等一下再说一遍。' });
           const before = (await bots('/api/chat?bot=' + bot.id + '&since=0')).messages.reduce((m, x) => Math.max(m, x.id), 0);
           await bots('/api/send', { bot: bot.id, text: '【主人通过 CEO Agent 交代的事】\n' + (d.task || text) });
           note({ verdict: 'dispatch', who: '', what: '主人口头交代的事，交给了 Bot「' + bot.name + '」', reason: (d.task || text).slice(0, 120) });
