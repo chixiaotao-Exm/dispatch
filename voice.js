@@ -113,7 +113,16 @@ module.exports = function (ctx) {
   // 国际站（新加坡）和国内站（北京）是两套入口、两套密钥。自定义词作为“背景文字”带过去，它会往这些词上靠。
   const qwReady = () => Boolean(asr.qwOn && asr.qwKey && ctx.asrFile && Date.now() >= (asrState.qwDownUntil || 0));
   const qwHost = () => (asr.qwRegion === 'cn' ? 'dashscope.aliyuncs.com' : 'dashscope-intl.aliyuncs.com');
-  const qwWords = () => (asr.hotwords.length ? '这段对话里可能出现的词：' + asr.hotwords.join('、') + '。' : '');
+  const qwWords = () => asr.hotwords.join(' ');
+  // 它有时会把给它参考的词原样念进识别结果的开头（实际出现过）：有就去掉。
+  const qwClean = (t) => {
+    t = String(t || '');
+    const i = t.indexOf('可能出现的词');
+    if (i >= 0) { const last = asr.hotwords.reduce((m, w) => Math.max(m, t.lastIndexOf(w) + w.length), i); t = t.slice(last).replace(/^[。.、，,\s]+/, ''); }
+    const words = asr.hotwords.filter(Boolean);
+    if (words.length >= 4) { let j = 0, n = 0; for (const w of words) { const k = t.indexOf(w, j); if (k < 0 || k - j > 3) break; j = k + w.length; n++; } if (n >= 4 && n >= words.length - 1) t = t.slice(j).replace(/^[。.、，,\s]+/, ''); }   // 开头连着就是那一串词
+    return t.trim();
+  };
   const qwFail = (msg) => { asrState.qwError = String(msg).slice(0, 200); asrState.qwDownUntil = Date.now() + 3 * 60000; console.log('[语音识别] Qwen3-ASR 没成：' + asrState.qwError + '；这几分钟先用' + (asrReady() ? '豆包' : '本机模型')); };
   // 整句识别：一段录音送过去，直接拿回文字。
   async function qwenFlash(audio, format) {
@@ -129,7 +138,7 @@ module.exports = function (ctx) {
     if (!res.ok) throw new Error('Qwen 返回 ' + res.status + '：' + (res.status === 401 || res.status === 403 ? '密钥不对（国际站和国内站的密钥不通用，看看选对了没有）' : String(j.message || j.code || '').replace(/\s+/g, ' ').slice(0, 120)));
     const c = (((j.output || {}).choices || [])[0] || {}).message;
     const content = c ? c.content : '';
-    return String(Array.isArray(content) ? content.map((x) => (x && x.text) || '').join('') : content || '').trim();
+    return qwClean(String(Array.isArray(content) ? content.map((x) => (x && x.text) || '').join('') : content || ''));
   }
   // 流式识别：边说边出字。它自己会按停顿把话切成一段一段（每段出一个定稿），这里把定稿的各段和正在说的那一段拼成到目前为止的全文。
   function openQwen(sid) {
@@ -162,7 +171,7 @@ module.exports = function (ctx) {
       else if (j.type === 'conversation.item.input_audio_transcription.completed') { if (j.transcript) s.done_.push(String(j.transcript)); s.cur = ''; s.definite = true; }
       else if (j.type === 'session.finished') s.final = true;
       else return;
-      s.text = (s.done_.join('') + s.cur).trim();
+      s.text = qwClean(s.done_.join('') + s.cur);
       wake();
     };
     ws.onerror = () => fail(opened ? '和阿里的连接断了' : '连不上 Qwen3-ASR：密钥不对，或者选错了国际站 / 国内站');
@@ -303,7 +312,7 @@ module.exports = function (ctx) {
   const PERSONA = ctx.persona || '你说话的性格：反骨仔。嘴上不服管、爱抬杠、爱吐槽，会损主人两句，偶尔爆句粗口（比如"靠""我去""他妈的"），像一个嘴欠但跟了主人很多年的老搭档。这股劲儿要自然、随机，不是每句话都带：大约三句里有一两句就是正常说话，干脆利落地答完、办完，一个情绪词都没有；想损的时候才损一句。不要养成口头禅——不要总用同一个开头（比如每句都"行行行""靠""我去"），看一眼"最近的对话"里你自己前几句是怎么开头、怎么吐槽的，这一句换个说法，或者干脆不带情绪。吐槽要针对眼前这件具体的事，不要套话；粗口更少，偶尔才来一次。但你做事非常靠谱：嘴上再怎么抱怨，该办的事一件不落、马上去办；数据、结论、交给谁办这些一个字都不乱说，不夸大也不编造；听不清就直说没听清。粗口是语气，不是攻击：不拿主人的家人、长相、身体开玩笑，不说歧视人的话。主人在说正经的急事（出故障、有告警）时少贫嘴，先说要紧的。这个性格只体现在 say 里；task 是交给下属的任务说明，照常写得清楚、正经，不带脏话。';
   const PROMPT = `你是 CEO Agent。主人${ctx.ownerName ? '（' + ctx.ownerName + '）' : ''}正在调度台上对你说话。文字多半是语音识别出来的，可能有同音错字，按意思理解；实在听不明白就问他，不要猜着派活。
 你的工作是决定这句话由谁来办。只输出一个 JSON，不要输出别的：
-{"action":"reply 或 agent 或 bot 或 stop","bot":"Bot 的名字，action 是 bot 时才填（action 是 stop 时：要叫停的是 Bot 就填它的名字，是专用 Agent 就留空）","say":"对主人说的一句话","revise":false,"followUp":false,"hangup":false,"look":[],"task":"交给对方的任务说明"}
+{"action":"reply 或 agent 或 bot 或 stop","bot":"Bot 的名字，action 是 bot 时才填（action 是 stop 时：要叫停的是 Bot 就填它的名字，是专用 Agent 就留空）","say":"对主人说的一句话","revise":false,"restart":false,"followUp":false,"hangup":false,"look":[],"task":"交给对方的任务说明"}
 各项就按上面这个顺序写（先想好再动笔：action 定下来之后紧接着写 say，因为 say 会在你写完其余各项之前就先念给主人听）。
 
 三种做法：
@@ -312,7 +321,10 @@ module.exports = function (ctx) {
 - bot：交给某个 Bot。Bot 有一台带浏览器和桌面的电脑，适合上网查东西、打开网页截图、画图出图、轻量的问答和杂事。从下面的 Bot 名单里按名字选一个；名单是空的或者都不合适就用 agent。主人点名要某个 Bot 时照办。
 
 - stop：主人要叫停、暂停、取消一件正在办的事（看下面给你的"正在办的事"）。这时不派新活，只让对方停下来；say 用一句话告诉主人已经叫停了谁。主人说的"暂停"也按叫停处理（停下来之后不能从中间接着做，要重新交代）。"正在办的事"是空的就用 reply 告诉他现在没有在办的事。
-revise：只在 action 是 bot 时有用。那个 Bot 正在忙，而且忙的正是主人刚才交给它的那件事，主人现在是在修改或补充这件事的要求（比如"找一个二十岁左右的""换成另一个网站"），就填 true：会让它先停下手上的，再按新的要求重新做。这时 task 必须写成修改之后的完整任务（原来的要求加上这次的修改），不能只写修改的那一句。主人交代的是另一件不相干的事，填 false。
+revise 和 restart：只在 action 是 bot、而且那个 Bot 正在忙着主人刚才交给它的那件事时有用（看"正在办的事"）。这时主人再说到这件事，绝对不要回答"它正在忙"，要在下面两种里选一种：
+- revise 填 true：主人是在给正在办的这件事补充、修改、提醒（比如"找一个二十岁左右的""随便找一个直播间看""告诉他不要送礼物""每个分类都可以往下拉"）。这句话会直接递给正在做事的 Bot，它接着手上的做，不会从头再来。这时 task 只写这次补充的内容本身（Bot 记得原来的任务，不要把原任务再抄一遍），写成对它说的一句完整的话。
+- restart 填 true：主人是要它放下手上的，换成另一件不相干的事（比如"算了，改查天气"）。会让它先停下，再做新的。这时 task 写新任务的完整说明。
+两个都是 false：那个 Bot 没在忙，或者它在忙的不是这次对话里交代的事。
 
 task 怎么写：只转述，不加料。把主人说的要求原样、完整地写成一段任务说明，尽量用他自己的话；只做三件事：纠正明显的识别错字，补上从上文对话里能确定的指代（"刚才那个""它"），修改要求时把原来的要求和这次的修改合成一段。
 task 里严禁出现主人没有说过的东西，包括但不限于：他没要求的步骤和做法、他没要求的交付物（比如"交回链接""截一张图""写一份介绍""发布成网页""列出清单"）、他没提的条件和限制、你觉得"顺便做了更好"的事、遇到某种情况该怎么办的预案。主人说"找一个跳舞的女主播"，task 就只是"找一个跳舞的女主播"加上必要的上下文，不要替他规定要交回什么。对方怎么做、交回什么由对方自己判断。主人的要求太含糊、不补充就没法做时，用 reply 问他，不要自己替他补全。写完 task 自查一遍：每一句要求都能在主人说过的话里找到出处，找不到的删掉。
@@ -348,7 +360,7 @@ ${PERSONA}
       const j = JSON.parse(String(text).slice(String(text).indexOf('{'), String(text).lastIndexOf('}') + 1));
       const action = ['reply', 'agent', 'bot', 'stop'].includes(j.action) ? j.action : null;
       if (!action) return null;
-      return { action, revise: j.revise === true, bot: String(j.bot || '').trim(), followUp: j.followUp === true, hangup: j.hangup === true, look: (Array.isArray(j.look) ? j.look : []).filter((k) => ['site', 'srv', 'relay', 'music'].includes(k)).slice(0, 4), task: String(j.task || '').trim().slice(0, 6000), say: String(j.say || '').trim().slice(0, 600) };
+      return { action, revise: j.revise === true, restart: j.restart === true, bot: String(j.bot || '').trim(), followUp: j.followUp === true, hangup: j.hangup === true, look: (Array.isArray(j.look) ? j.look : []).filter((k) => ['site', 'srv', 'relay', 'music'].includes(k)).slice(0, 4), task: String(j.task || '').trim().slice(0, 6000), say: String(j.say || '').trim().slice(0, 600) };
     } catch (e) { return null; }
   }
 
@@ -476,7 +488,13 @@ ${PERSONA}
       if (d.action === 'bot') {
         const bot = findBot(d.bot);
         if (!bot) d.action = 'agent';   // 没有这个 Bot：改交给专用 Agent
-        else if (bot.running && !d.revise) return say({ role: 'ceo', text: '「' + bot.name + '」正在忙别的事。要它先停下来改做这件，就跟我说“让它停下来”；或者等它做完再说，也可以换一个人做。' });
+        else if (bot.running && d.revise) {
+          // 补充要求：直接递给正在做事的 Bot，它接着做。原来那条"正在做"的记录不动，做完了照常把结果带回来。
+          await bots('/api/tell', { bot: bot.id, text: '【主人通过 CEO Agent 补充的要求】\n' + (d.task || text) });
+          note({ verdict: 'dispatch', who: '', what: '主人口头补充的要求，递给了正在做事的 Bot「' + bot.name + '」', reason: (d.task || text).slice(0, 120) });
+          return say({ role: 'ceo', text: d.say || '已经告诉「' + bot.name + '」了，它接着做。', to: 'Bot「' + bot.name + '」', task: d.task || text });
+        }
+        else if (bot.running && !d.restart) return say({ role: 'ceo', text: '「' + bot.name + '」正在忙别的事。要它先停下来改做这件，就跟我说“让它停下来”；或者等它做完再说，也可以换一个人做。' });
         else {
           if (bot.running && !(await stopBot(bot))) return say({ role: 'ceo', text: '我叫「' + bot.name + '」先停手，它还没停下来。稍等一下再说一遍。' });
           const before = (await bots('/api/chat?bot=' + bot.id + '&since=0')).messages.reduce((m, x) => Math.max(m, x.id), 0);
