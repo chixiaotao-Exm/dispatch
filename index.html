@@ -1739,7 +1739,7 @@ setInterval(loadMailInfo, 15000);
 setTimeout(loadMailInfo, 1200);
 // ---- Bot 列 ----
 const MODEL_NAMES = { 'deepseek-v4.1-flash-abliterated': 'deepseek-v4.1-flash' };   // 模型的显示名：只改界面上看到的名字，实际调用的模型不变
-const showModel = (id) => MODEL_NAMES[id] || id || '';
+const showModel = (id) => { const raw = String(id || ''), name = raw.replace(/^relay:/, ''); return (MODEL_NAMES[name] || name) + (raw.startsWith('relay:') ? '（中转站）' : ''); };
 // ---- 和 CEO Agent 通话：像打电话一样。点一次开始，之后一直开着：你说完停一下它就自动接话，并用语音回答。----
 let voiceKey = '', voiceBusy = false, voicePoll = 0, voiceShow = false;
 const call = { speakId: 0, on: false, state: 'idle', ctx: null, stream: null, node: null, audio: null, spoken: new Set(), queue: [], pre: [], rec: [], speaking: false, loudMs: 0, lastLoud: 0, startAt: 0, noise: 0.006, muteUntil: 0, sending: false };

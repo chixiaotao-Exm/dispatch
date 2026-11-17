@@ -188,7 +188,7 @@ const argLine = (c) => { const a = c.args || {}; return String(a.url || a.query 
 const TOOL_NAME = { web_search: '搜索', web_fetch: '读网页', web_render: '渲染读网页', browser_open: '打开网页', browser_read: '看网页', browser_click: '点击', browser_type: '输入', browser_select: '选择', browser_key: '按键', browser_scroll: '滚动', browser_back: '后退',
   browser_screenshot: '网页截图', desktop_screenshot: '桌面截图', desktop_click: '点桌面', desktop_type: '桌面输入', desktop_key: '桌面按键', shell: '运行命令', write_file: '写文件', read_file: '读文件', list_files: '看文件夹', deliver: '交付文件', publish: '发布到网上', subagent: '子代理', request_extension: '申请扩展', skill_read: '读技能', mcp_tools: '看 MCP 工具', mcp_call: '调用 MCP', remember: '记住', wait: '等待' };
 const MODEL_NAMES = { 'deepseek-v4.1-flash-abliterated': 'deepseek-v4.1-flash' };   // 模型的显示名：只改界面上看到的名字，实际调用的模型不变
-const showModel = (id) => MODEL_NAMES[id] || id || '';
+const showModel = (id) => { const raw = String(id || ''), name = raw.replace(/^relay:/, ''); return (MODEL_NAMES[name] || name) + (raw.startsWith('relay:') ? '（中转站）' : ''); };
 const fileUrl = (p, inlineImg) => API + '/file?bot=' + encodeURIComponent(cur) + '&path=' + encodeURIComponent(p) + (inlineImg ? '&inline=1' : '');
 const size = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n > 1024 ? (n / 1024).toFixed(0) + ' KB' : n + ' 字节';
 function paintMsgs(keepScroll) {

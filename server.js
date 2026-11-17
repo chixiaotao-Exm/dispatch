@@ -1,6 +1,6 @@
 // 调度台后端：定时检查网站和服务器，提供 /api/status 给页面读取。零依赖，node server.js 即可运行。
 const MODEL_NAMES = { 'deepseek-v4.1-flash-abliterated': 'deepseek-v4.1-flash' };   // 模型的显示名：只改界面上看到的名字，实际调用的模型不变
-const showModel = (id) => MODEL_NAMES[id] || id || '';
+const showModel = (id) => { const raw = String(id || ''), name = raw.replace(/^relay:/, ''); return (MODEL_NAMES[name] || name) + (raw.startsWith('relay:') ? '（中转站）' : ''); };
 const http = require('http');
 // CEO Agent 做过的事：审批了什么、理由是什么、什么时候临时换了备用模型、什么时候写了简报。给首页右上角的卡片看。
 const ceoLog = [];

@@ -2,7 +2,7 @@
 // 跑在调度台这台服务器上：模型密钥只在这里；Bot 的电脑（另一台服务器上的隔离容器）只负责执行工具。
 // 零依赖，Node 18+。
 const MODEL_NAMES = { 'deepseek-v4.1-flash-abliterated': 'deepseek-v4.1-flash' };   // 模型的显示名：只改界面上看到的名字，实际调用的模型不变
-const showModel = (id) => MODEL_NAMES[id] || id || '';
+const showModel = (id) => { const raw = String(id || ''), name = raw.replace(/^relay:/, ''); return (MODEL_NAMES[name] || name) + (raw.startsWith('relay:') ? '（中转站）' : ''); };
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -58,8 +58,43 @@ function push(id, msg) {
 }
 
 // ---------------- 模型 ----------------
-const visionOf = (model) => /^gpt-/.test(model);            // 这些模型看得懂截图
 const viaClaude = (model) => CLAUDE_MODELS.includes(model); // 走主人的 Claude 订阅（在专用 Agent 的容器里）
+// 中转站上和 Claude 订阅同名的模型，内部编号前面加 relay:，这样两条路能分开选；发请求时再把前缀去掉。
+const relayName = (model) => String(model || '').replace(/^relay:/, '');
+// 每个中转站模型"能不能看图""这把密钥能不能用"：实测一次，结果存下来。true 能看图，false 只看文字，'no' 这把密钥用不了。
+const PROBE_FILE = path.join(DATA, 'model-probe.json');
+let probes = {};
+try { probes = JSON.parse(fs.readFileSync(PROBE_FILE, 'utf8')); } catch (e) { /* 还没测过 */ }
+const probing = new Set();
+// 没测过的先按名字猜（猜错了测完会改过来）
+const visionOf = (model) => { if (viaClaude(model)) return false; const v = probes[relayName(model)]; return v === undefined ? /^(gpt-|kimi|claude|deepseek)/.test(relayName(model)) : v === true; };
+// 一张 64×64 的纯红色小图：问模型"这是什么颜色"，答出红色就是真的看见了。
+const RED_PNG = (() => {
+  const zlib = require('zlib');
+  const chunk = (type, data) => { const body = Buffer.concat([Buffer.from(type), data]), len = Buffer.alloc(4), crc = Buffer.alloc(4); len.writeUInt32BE(data.length); crc.writeUInt32BE(zlib.crc32(body) >>> 0); return Buffer.concat([len, body, crc]); };
+  const head = Buffer.alloc(13); head.writeUInt32BE(64, 0); head.writeUInt32BE(64, 4); head[8] = 8; head[9] = 2;
+  const row = Buffer.concat([Buffer.from([0]), Buffer.alloc(64 * 3).fill(Buffer.from([220, 20, 20]))]);
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', head), chunk('IDAT', zlib.deflateSync(Buffer.concat(Array(64).fill(row)))), chunk('IEND', Buffer.alloc(0))]).toString('base64');
+})();
+async function probeModel(id) {
+  if (probing.has(id)) return;
+  probing.add(id);
+  try {
+    const res = await fetch(LLM.base + '/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + LLM.key },
+      body: JSON.stringify({ model: id, max_tokens: 600, messages: [{ role: 'user', content: [{ type: 'text', text: '这张图主要是什么颜色？只回答一个字。' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,' + RED_PNG } }] }] }), signal: AbortSignal.timeout(60000) });
+    const text = await res.text();
+    let said = ''; try { const msg = JSON.parse(text).choices[0].message; said = String(msg.content || '') + ' ' + String(msg.reasoning_content || ''); } catch (e) { /* 不是正常回答 */ }   // 会先思考的模型，答案可能只出现在思考内容里
+    let result;
+    if (res.ok && /红|red/i.test(said)) result = true;
+    else if (/not available for this API key|model_not_found|no available .*accounts/i.test(text)) result = 'no';
+    else if (res.status === 400 || (res.ok && said.trim())) result = false;   // 明确说不支持图片，或者答了但没看出颜色
+    else return;   // 超时、限流、5xx：这次不算，下回再测
+    probes[id] = result;
+    try { fs.writeFileSync(PROBE_FILE, JSON.stringify(probes, null, 1)); } catch (e) { /* 存不了下回再测 */ }
+    modelCache.at = 0;   // 列表下次重新生成
+    console.log(`[模型] ${id}：${result === true ? '能看图' : result === false ? '只看文字' : '这把密钥用不了'}`);
+  } catch (e) { /* 下回再测 */ } finally { probing.delete(id); }
+}
 let modelCache = { at: 0, list: [] };
 async function listModels() {
   if (Date.now() - modelCache.at < 600000 && modelCache.list.length) return modelCache.list;
@@ -67,9 +102,13 @@ async function listModels() {
   try {
     const res = await fetch(LLM.base + '/models', { headers: { Authorization: 'Bearer ' + LLM.key }, signal: AbortSignal.timeout(15000) });
     relay = ((await res.json()).data || []).map((m) => m.id).filter((id) => typeof id === 'string' && !/review|reserve/.test(id)).sort();
-  } catch (e) { relay = modelCache.list.filter((m) => m.via === 'relay').map((m) => m.id); }
+  } catch (e) { relay = modelCache.list.filter((m) => m.via === 'relay').map((m) => relayName(m.id)); }
+  for (const id of relay) if (probes[id] === undefined) probeModel(id);   // 新出现的模型：后台测一下，不让列表等着
   modelCache = { at: Date.now(), list: [
-    ...relay.map((id) => ({ id, via: 'relay', vision: visionOf(id), note: visionOf(id) ? '中转站 · 能看截图' : '中转站 · 只看文字' })),
+    ...relay.filter((id) => probes[id] !== 'no').map((id) => {
+      const tested = probes[id] !== undefined, vision = tested ? probes[id] === true : /^(gpt-|kimi|claude|deepseek)/.test(id);   // 这里的 id 是中转站上的真名，不能用 visionOf（它会把同名的当成 Claude 订阅）
+      return { id: CLAUDE_MODELS.includes(id) ? 'relay:' + id : id, via: 'relay', vision, note: '中转站 · ' + (vision ? '能看截图' : '只看文字') + (tested ? '' : '（还没实测）') };
+    }),
     ...CLAUDE_MODELS.map((id) => ({ id, via: 'claude', vision: false, note: 'Claude 订阅 · 只看文字 · 消耗订阅额度' })),
   ] };
   return modelCache.list;
@@ -113,7 +152,7 @@ async function callModel(bot, list, lastImage, signal) {
   const tools = toolsFor(bot).map((t) => ({ type: 'function', function: { name: t.name, description: t.desc,
     parameters: { type: 'object', properties: Object.fromEntries(Object.entries(t.params).map(([k, v]) => [k, { type: v[0], description: v[1] }])), required: t.required || [] } } }));
   const res = await fetch(LLM.base + '/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + LLM.key },
-    body: JSON.stringify({ model, max_tokens: 4000, temperature: 0.4, messages, tools }), signal: AbortSignal.any([signal, AbortSignal.timeout(180000)]) });
+    body: JSON.stringify({ model: relayName(model), max_tokens: 4000, temperature: 0.4, messages, tools }), signal: AbortSignal.any([signal, AbortSignal.timeout(180000)]) });
   const raw = await res.text();
   if (!res.ok) throw new Error(`模型接口返回 ${res.status}：${raw.replace(/\s+/g, ' ').slice(0, 200)}`);
   const msg = ((JSON.parse(raw).choices || [])[0] || {}).message || {};
