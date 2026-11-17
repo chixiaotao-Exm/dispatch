@@ -642,9 +642,26 @@ button:hover,.btn:hover{box-shadow:0 0 12px -2px var(--accent)}
 .place>.rows::before{display:none}
 .place>.card{cursor:default}
 /* 园区里的主楼和别的楼一样高，屏幕小的时候一起变矮，不会压到下面那栋 */
-.place.campus>.card{max-height:var(--ch,88px);overflow:hidden;padding:8px 12px}
+.place.campus>.card{overflow:hidden;padding:9px 12px 10px}
+.place.campus>.card:hover{max-height:none!important;-webkit-mask-image:none;mask-image:none;z-index:30}
+/* 实在放不下被压矮的楼：下沿渐渐隐去，一看就知道下面还有内容，而不是把一行字切成两半 */
+.place .clip{-webkit-mask-image:linear-gradient(#000 calc(100% - 18px),transparent);mask-image:linear-gradient(#000 calc(100% - 18px),transparent)}
+/* 楼比较窄：标题不拉开字距、不换行；名字完整显示，后面的小标签挤不下就换到下一行 */
+.place.campus>.card .head{letter-spacing:.04em;white-space:nowrap}
+.place.campus>.card .sub{white-space:normal}
+.place .row .l1,.place .row .l1.one{flex-wrap:wrap;row-gap:3px}
+.place .row .l1 .host,.place .row .l1 a{flex:none;max-width:100%;overflow:visible;text-overflow:clip;white-space:normal;overflow-wrap:anywhere}
+.place .row .l1 .ms{margin-left:auto}
+.place .more{height:40px;max-height:none}
+/* 园区里地方紧的时候，字和留白收紧一点 */
+.place.tight .row{padding:5px 9px 6px;font-size:11.5px}
+.place.tight .row .l2{margin-top:1px;font-size:11px}
+.place.tight .row .hist{margin-top:3px}
+.place.tight .row .btn{padding:1px 7px;font-size:11px}
+.place.tight>.card{padding:6px 10px 7px}
+.place.tight>.card .big{font-size:19px}
 .place.campus>.card .big{font-size:22px;line-height:1.2}
-.place .row{position:absolute;margin:0;max-height:var(--ch,88px);overflow:hidden;padding:8px 11px 9px;border-radius:6px;animation:none;
+.place .row{position:absolute;margin:0;overflow:hidden;padding:8px 11px 9px;border-radius:6px;animation:none;
   border:1px solid color-mix(in srgb,var(--glow) 45%,#0a1a2e);
   background:linear-gradient(160deg,color-mix(in srgb,var(--glow) 14%,#0b1c33),color-mix(in srgb,var(--glow) 5%,#081424));
   box-shadow:0 4px 0 -1px color-mix(in srgb,var(--glow) 30%,#050d1a),0 8px 14px rgba(0,0,0,.45)}
@@ -652,7 +669,7 @@ button:hover,.btn:hover{box-shadow:0 0 12px -2px var(--accent)}
 .place .row::before,.place .row::after{display:none}
 .place .row.bad{border-color:var(--bad)}
 /* 一栋楼里内容多的时候先只露出上半截；鼠标停上去（或者用键盘走到里面的按钮）就整栋展开，盖在别的楼上面 */
-.place .row:hover,.place .row:focus-within{max-height:none;z-index:30;transform:none!important;border-color:var(--glow);
+.place .row:hover,.place .row:focus-within{max-height:none!important;-webkit-mask-image:none;mask-image:none;z-index:30;transform:none!important;border-color:var(--glow);
   box-shadow:0 4px 0 -1px var(--glow),0 0 22px -2px var(--glow),0 14px 30px rgba(0,0,0,.6)}
 .place .row .btn{padding:2px 9px;font-size:12px}
 .place .row .l2{margin-top:3px}
@@ -967,9 +984,9 @@ const MAP = {
     boss:  { card: 'bossCard', at: [520, 70], via: [[512, 170]], color: '--c-boss', cls: 'boss', box: [432, 6, 612, 60], main: [0.45, 0.2], mw: 300 },
     lineL: { card: 'lineLeftCard', at: [330, 135], via: [[440, 215], [370, 160]], color: '--c-pojia', cls: 'line', side: 'lineLeft', box: [232, 34, 356, 122], main: [0.4, 0.6], mw: 250 },
     lineR: { card: 'lineRightCard', at: [700, 150], via: [[590, 225], [660, 180]], color: '--c-qiye', cls: 'line', side: 'lineRight', box: [668, 50, 792, 136], main: [0.5, 0.35], mw: 250 },
-    site:  { card: 'siteCard', at: [178, 322], via: [[390, 288], [270, 316]], color: '--c-site', detail: true, box: [8, 258, 172, 392] },
+    site:  { card: 'siteCard', at: [210, 322], via: [[390, 288], [290, 316]], color: '--c-site', detail: true, box: [8, 256, 204, 421] },
     relay: { card: 'relayCard', at: [832, 300], via: [[640, 290]], color: '--c-relay', detail: true, box: [838, 258, 994, 372] },
-    music: { card: 'musicCard', at: [192, 401], via: [[330, 335], [232, 386]], color: '--c-music', detail: true, box: [8, 408, 186, 554] },
+    music: { card: 'musicCard', at: [194, 430], via: [[330, 335], [236, 400]], color: '--c-music', detail: true, box: [8, 434, 188, 554] },
     auto:  { card: 'autoCard', at: [322, 414], via: [[420, 330]], color: '--c-auto', detail: true, box: [214, 420, 438, 554] },
     bot:   { card: 'botCard', at: [410, 232], via: [[452, 252]], color: '--c-bot', detail: true, box: [212, 148, 404, 250] },
     store: { card: 'storeCard', at: [604, 396], via: [[560, 330]], color: '--c-store', detail: true, box: [464, 402, 772, 554] },
@@ -1017,9 +1034,9 @@ const MAP = {
     // 没有路线经过的道路：弯弯曲曲的环路、斜穿的大道、把各个园区门口连起来的小路，还有一条铁路。
     svg += ['M40 250 C120 150 300 40 520 30 S900 120 960 250 S820 398 520 392 S60 400 40 250',
       'M-20 60 C100 96 170 120 205 138 S330 270 390 288 S440 380 322 414', 'M1020 330 C900 330 780 320 640 290 S380 180 300 -20',
-      'M178 322 C198 350 204 380 192 401', 'M192 401 C232 392 282 396 322 414', 'M322 414 C420 380 520 380 604 396', 'M330 135 C350 170 382 210 410 232',
+      'M210 322 C222 350 222 400 194 430', 'M194 430 C232 420 282 416 322 414', 'M322 414 C420 380 520 380 604 396', 'M330 135 C350 170 382 210 410 232',
       'M604 396 C700 372 800 380 882 408', 'M882 408 C892 370 872 330 832 300', 'M330 135 C380 100 450 78 520 70', 'M520 70 C600 78 660 110 700 150',
-      'M700 150 C780 190 830 240 832 300', 'M178 322 C190 250 260 178 330 135', 'M905 0 C890 60 930 150 1000 170', 'M60 0 C90 40 150 30 200 36']
+      'M700 150 C780 190 830 240 832 300', 'M210 322 C214 250 270 178 330 135', 'M905 0 C890 60 930 150 1000 170', 'M60 0 C90 40 150 30 200 36']
       .map((d, i) => `<path class="rd s" d="${d}"${i === 0 ? ' style="opacity:.75"' : ''}/>`).join('')
       + '<path class="rd" d="M-20 398 C200 392 330 360 505 270 S800 92 1020 40"/>'
       + '<path class="rail" d="M-20 240 C150 250 250 380 420 366 S700 232 1020 250"/>';
@@ -1068,10 +1085,10 @@ const MAP = {
     if (!this.on) return;
     this.close();
     this.watch.disconnect(); this.sizes.disconnect();
-    for (const row of document.querySelectorAll('#mapPlaces .row')) { row.hidden = false; for (const prop of ['left', 'top', 'width', 'transform']) row.style.removeProperty(prop); }
+    for (const row of document.querySelectorAll('#mapPlaces .row')) { row.hidden = false; row.classList.remove('clip'); for (const prop of ['left', 'top', 'width', 'transform', 'max-height']) row.style.removeProperty(prop); }
     for (const m of this.moved.reverse()) m.parent.insertBefore(m.el, m.next && m.next.parentNode === m.parent ? m.next : null);
     this.moved = [];
-    for (const p of Object.values(this.places)) for (const prop of ['left', 'top', 'bottom', 'width']) $(p.card).style.removeProperty(prop);
+    for (const p of Object.values(this.places)) { $(p.card).classList.remove('clip'); for (const prop of ['left', 'top', 'bottom', 'width', 'max-height']) $(p.card).style.removeProperty(prop); }
     $('mapPlaces').innerHTML = '';
     wrap.classList.remove('mapmode');
     this.on = false;
@@ -1094,37 +1111,58 @@ const MAP = {
         card.style.left = Math.round(x0 + p.main[0] * Math.max(0, bw - mw)) + 'px'; card.style.top = Math.round(y0 + p.main[1] * Math.max(0, bh - card.offsetHeight)) + 'px';
         continue;
       }
-      const rows = [...el.querySelectorAll('.row')], n = rows.length + 1;
-      // 试几种"几列、每栋多高"的摆法，挑能摆下最多楼的；都摆得下时挑楼最大的。
-      let best = null;
-      for (let cols = 1; cols <= 4; cols++) {
-        const w = (bw - (cols - 1) * G) / cols;
-        if (w < 128 && cols > 1) break;
-        for (const ch of [88, 74, 60, 48]) {
-          const r = Math.max(1, Math.floor((bh + G) / (ch + G))), cap = cols * r, score = Math.min(n, cap) * 1000 + ch * 3 + Math.min(w, 240);
-          if (!best || score > best.score) best = { cols, r, ch, cap, w: Math.min(w, 250), score };
-        }
-      }
-      const rand = this.rng(k), cells = [];
-      for (let r = 0; r < best.r; r++) for (let c = 0; c < best.cols; c++) cells.push([c, r]);
-      for (let i = cells.length - 1; i > 0; i--) { const q = Math.floor(rand() * (i + 1)); [cells[i], cells[q]] = [cells[q], cells[i]]; }
-      const over = n > best.cap, usable = over ? best.cap - 1 : best.cap;
-      const cw = bw / best.cols, chh = bh / best.r;
-      const put = (node, i, tilt) => {
-        const [c, r] = cells[i];
-        node.style.width = Math.round(best.w) + 'px';
-        node.style.left = Math.round(x0 + c * cw + rand() * Math.max(0, cw - best.w - 4)) + 'px';
-        node.style.top = Math.round(y0 + r * chh + rand() * Math.max(0, chh - best.ch - 6)) + 'px';
-        if (tilt) node.style.transform = `rotate(${(rand() * 3.4 - 1.7).toFixed(1)}deg)`;
-      };
-      el.style.setProperty('--ch', best.ch + 'px');
-      put(card, 0, false);
-      rows.forEach((row, i) => { if (i + 1 < usable) { row.hidden = false; put(row, i + 1, true); } else row.hidden = true; });
+      const rows = [...el.querySelectorAll('.row')], nodes = [card, ...rows];
       let more = el.querySelector('.more');
-      if (over) {
+      // 楼按内容的实际高度摆：先把顺序打乱，再一栋一栋放进当前最矮的那一列（像砌墙一样错开）。
+      const rand = this.rng(k), order = nodes.map((_, i) => i);
+      for (let i = order.length - 1; i > 0; i--) { const q = Math.floor(rand() * (i + 1)); [order[i], order[q]] = [order[q], order[i]]; }
+      const measure = (w) => { for (const nd of nodes) { nd.hidden = false; nd.classList.remove('clip'); nd.style.width = Math.round(w) + 'px'; nd.style.maxHeight = 'none'; } return nodes.map((nd) => nd.offsetHeight); };
+      const pack = (hs, cols, cap, list) => {
+        const col = Array(cols).fill(0), pos = {};
+        for (const i of list) { let c = 0; for (let q = 1; q < cols; q++) if (col[q] < col[c] - 0.5) c = q; pos[i] = [c, col[c]]; col[c] += Math.min(hs[i], cap) + G; }
+        return { pos, col, H: Math.max(...col) - G };
+      };
+      // 列数从少到多试：列越少楼越宽。第一种能把所有楼完整放下的就用它。
+      // 正常大小放不下时，先把这个园区的字和留白收紧一点再试；还不行才压矮。
+      let pick = null, last = null;
+      for (const tight of [false, true]) {
+      if (pick) break;
+      el.classList.toggle('tight', tight);
+      for (let cols = 1; cols <= 4; cols++) {
+        const w = Math.min(270, (bw - (cols - 1) * G) / cols);
+        if (w < 140 && cols > 1) break;
+        const hs = measure(w), r = pack(hs, cols, Infinity, order);
+        last = { cols, w, hs, cap: Infinity, list: order, ...r };
+        if (r.H <= bh) { pick = last; break; }
+      }
+      }
+      if (!pick) {
+        // 完整放不下：用最多的列数，把最高的几栋压矮一点（压矮的楼下沿渐隐，鼠标停上去整栋展开）；还放不下，再把排在后面的收进"还有 N 条"。
+        pick = last; pick.hs = measure(pick.w);
+        let list = order.slice(), cap = 46;
+        for (let c = 170; c >= 46; c -= 6) { const r = pack(pick.hs, pick.cols, c, list); if (r.H <= bh) { cap = c; Object.assign(pick, r); break; } }
+        if (pack(pick.hs, pick.cols, cap, list).H > bh) {
+          while (list.length > 1) { list.pop(); const r = pack(pick.hs, pick.cols, cap, list); if (r.H + 44 + G <= bh) { Object.assign(pick, r); break; } }
+        }
+        pick.cap = cap; pick.list = list;
+      }
+      const cw = bw / pick.cols, shown = new Set(pick.list);
+      const startY = pick.col.map((h) => rand() * Math.min(26, Math.max(0, bh - (h - G))));   // 每一列从不同的高度开始，不排成一条线
+      nodes.forEach((nd, i) => {
+        if (!shown.has(i)) { nd.hidden = true; return; }
+        const [c, y] = pick.pos[i], clipped = pick.hs[i] > pick.cap;
+        nd.style.left = Math.round(x0 + c * cw + rand() * Math.max(0, cw - pick.w - 4)) + 'px';
+        nd.style.top = Math.round(y0 + y + startY[c]) + 'px';
+        nd.style.maxHeight = clipped ? pick.cap + 'px' : 'none';
+        nd.classList.toggle('clip', clipped);
+        if (nd !== card) nd.style.transform = `rotate(${(rand() * 2.4 - 1.2).toFixed(1)}deg)`;
+      });
+      const hiddenN = nodes.length - shown.size;
+      if (hiddenN) {
         if (!more) { more = document.createElement('button'); more.className = 'more'; more.dataset.more = k; el.appendChild(more); }
-        more.textContent = `还有 ${n - usable} 条，点开看 ›`;
-        put(more, usable, true);
+        more.textContent = `还有 ${hiddenN} 条，点开看 ›`;
+        let c = 0; for (let q = 1; q < pick.cols; q++) if (pick.col[q] < pick.col[c]) c = q;
+        more.style.width = Math.round(pick.w) + 'px'; more.style.left = Math.round(x0 + c * cw) + 'px'; more.style.top = Math.round(y0 + pick.col[c] + startY[c]) + 'px';
       } else if (more) more.remove();
     }
   },
@@ -1159,7 +1197,7 @@ const MAP = {
     const panel = $('placePanel'), el = $('place-' + key);
     panel.style.setProperty('--glow', `var(${p.color})`); panel.style.setProperty('--glow2', `var(${p.color})`); panel.style.setProperty('--tree', `color-mix(in srgb,var(${p.color}) 35%,var(--line))`);
     $('ppTitle').textContent = ($(p.card).querySelector('.head') || $(p.card)).textContent.trim();
-    for (const row of el.querySelectorAll('.row')) { row.hidden = false; for (const prop of ['left', 'top', 'width', 'transform']) row.style.removeProperty(prop); }
+    for (const row of el.querySelectorAll('.row')) { row.hidden = false; row.classList.remove('clip'); for (const prop of ['left', 'top', 'width', 'transform', 'max-height']) row.style.removeProperty(prop); }
     const more = el.querySelector('.more'); if (more) more.remove();
     for (const r of p.rowEls) $('ppBody').appendChild(r);
     panel.hidden = false; $('hudRight').hidden = true;
