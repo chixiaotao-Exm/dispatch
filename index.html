@@ -558,7 +558,7 @@ button:hover,.btn:hover{box-shadow:0 0 12px -2px var(--accent)}
 @keyframes mapPing{from{transform:scale(.9);opacity:.9}to{transform:scale(2.3);opacity:0}}
 .place.puck .lb{position:absolute;left:-70px;top:30px;width:140px;text-align:center;font-family:var(--hud);font-size:13px;letter-spacing:.14em;color:#ffd98f;text-shadow:0 0 10px rgba(0,0,0,.9),0 0 3px #000}
 /* 左右两块信息面板：左边是 CEO Agent（像导航的指引面板），右边是它做过的事和额度 */
-#hudLeft,#hudRight{position:absolute;top:14px;width:400px;display:flex;flex-direction:column;gap:12px;z-index:4;max-height:calc(100% - 28px);overflow:auto;scrollbar-width:none}
+#hudLeft,#hudRight{position:absolute;top:14px;width:min(400px,19cqw);display:flex;flex-direction:column;gap:12px;z-index:4;max-height:calc(100% - 28px);overflow:auto;scrollbar-width:none}
 #hudLeft{left:14px;max-height:62%}#hudRight{right:14px;max-height:50%}
 #hudRight[hidden]{display:none}
 #hudLeft>.card,#hudRight>.card{position:static;width:auto;min-width:0;max-width:none;margin:0;flex:none}
@@ -612,6 +612,30 @@ button:hover,.btn:hover{box-shadow:0 0 12px -2px var(--accent)}
 .place.line>.card{left:calc(var(--bw) / -2);width:var(--bw);min-height:96px;padding:14px 16px 16px}
 /* 线路卡片原来往上、往两边伸出去的那几根线，在地图里不要 */
 .place>.card.line::after,.place>.card.line .up-v,.place>.card.line .up-h{display:none!important}
+
+/* ---- 园区：每个 Agent 一块不规则的地，里面一栋主楼和若干小楼 ---- */
+#mapSvg .lake{fill:#0a2a4a;stroke:none}
+#mapSvg .camp{fill:color-mix(in srgb,var(--rc) 6%,transparent);stroke:color-mix(in srgb,var(--rc) 42%,transparent);stroke-width:1.5;stroke-dasharray:7 5;transition:fill .3s,stroke .3s}
+#mapSvg .camp.lit{fill:color-mix(in srgb,var(--rc) 13%,transparent);stroke:var(--rc)}
+#mapSvg .fp{fill:#0d2440;stroke:#1b3b60;stroke-width:1;vector-effect:non-scaling-stroke}
+#mapSvg .rail{stroke:#3d618a;stroke-width:3;stroke-dasharray:11 7;opacity:.55}
+/* 主楼：位置和宽度由脚本摆（每个园区摆得不一样），这里只管样子 */
+.place>.card{min-height:0;padding:10px 13px 13px;bottom:auto}
+.place.has-detail>.card::after{display:none}
+.place>.card .big{font-size:24px}
+.place.boss>.card,.place.line>.card{min-height:0;padding:11px 14px 13px}
+/* 小楼：这个 Agent 的一条明细 */
+.bld{position:absolute;display:flex;align-items:center;gap:7px;height:42px;max-width:176px;padding:0 12px;border-radius:6px;font-size:13px;color:var(--text);white-space:nowrap;cursor:pointer;
+  border:1px solid color-mix(in srgb,var(--glow) 45%,#0a1a2e);
+  background:linear-gradient(160deg,color-mix(in srgb,var(--glow) 14%,#0b1c33),color-mix(in srgb,var(--glow) 5%,#081424));
+  box-shadow:0 4px 0 -1px color-mix(in srgb,var(--glow) 30%,#050d1a),0 8px 14px rgba(0,0,0,.45)}
+.bld[hidden]{display:none}
+.bld .nm{overflow:hidden;text-overflow:ellipsis}
+.bld:hover{border-color:var(--glow);box-shadow:0 4px 0 -1px var(--glow),0 0 16px -2px var(--glow),0 8px 14px rgba(0,0,0,.45)}
+/* 小楼高矮不一，看起来不那么整齐 */
+.bld:nth-of-type(3n){height:52px}
+.bld:nth-of-type(4n+1){height:34px;font-size:12px}
+.bld:nth-of-type(5n+2){border-radius:3px 12px 3px 3px}
 </style>
 </head>
 <body>
@@ -631,12 +655,9 @@ button:hover,.btn:hover{box-shadow:0 0 12px -2px var(--accent)}
   <!-- 地图模式：道路和路线（svg）、左右信息面板、各个地点、点开地点后的明细面板 -->
   <div id="mapBox">
     <svg id="mapSvg" viewBox="0 0 1000 560" preserveAspectRatio="none" aria-hidden="true"></svg>
-    <span class="map-lb" style="left:13%;top:49.6%">调度大道</span><span class="map-lb" style="left:82%;top:49.6%">调度大道</span>
-    <span class="map-lb v" style="left:52.4%;top:30%">汇报大道</span><span class="map-lb v" style="left:52.4%;top:86%">汇报大道</span>
-    <span class="map-lb" style="left:14%;top:29.6%">线路街</span><span class="map-lb" style="left:84%;top:58.8%">任务街</span><span class="map-lb" style="left:14%;top:58.8%">任务街</span>
     <div class="map-compass" aria-hidden="true"><b>N</b></div>
     <div id="mapPlaces"></div>
-    <div class="place puck" style="left:50%;top:53.5714%" aria-hidden="true"><div class="pk"></div><div class="lb">CEO Agent</div></div>
+    <div class="place puck" style="left:50.5%;top:48.2143%" aria-hidden="true"><div class="pk"></div><div class="lb">CEO Agent</div></div>
     <div id="hudLeft"></div>
     <div id="hudRight"></div>
     <aside id="placePanel" aria-label="地点明细" hidden><div class="pp-head"><strong id="ppTitle"></strong><button id="ppClose">关闭</button></div><div class="pp-body" id="ppBody"></div></aside>
@@ -848,27 +869,35 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 // 通信动画：每轮巡视时按"派发 → 汇报 → 上报"的顺序点亮对应的连接线。
 const wrap = $('wrap');
 // ---- 地图模式：整页是一张导航地图 ----
-// 每个 Agent 是地图上的一个地点，CEO Agent 是"当前位置"；从 CEO Agent 到每个地点有一条沿着道路走的规划路线，
-// 真实发生的通讯就是导航箭头在这些路线上行驶。点一个地点，右边展开它的明细。
+// 每个 Agent 是地图上的一个园区：园区里有一栋主楼（就是它原来的卡片），它的每一条明细（每个网站、每台服务器、每个 Bot……）
+// 各是园区里的一栋小楼，直接摆在地图上。CEO Agent 是"当前位置"，到每个园区门口有一条沿着道路走的规划路线，
+// 真实发生的通讯就是导航箭头在这些路线上行驶。点园区里任何一栋楼，右边展开完整的明细。
 // 屏幕不够宽时不进入地图模式，还是原来上下排列的样子。地图里用的都是原来那些卡片（只是挪了位置），所以数据怎么填都不用改。
 const MAP = {
-  on: false, W: 1000, H: 560, C: [500, 300], moved: [], routes: {}, open: '',
-  // 地点的坐标（地图是 1000 × 560 的格子），以及从 CEO Agent 出发、沿道路走到它要经过的拐点。
+  on: false, W: 1000, H: 560, C: [505, 270], moved: [], routes: {}, open: '', hover: '', timers: {},
+  // at：园区门口（路线的终点）。via：从 CEO Agent 沿道路走到门口要经过的拐点。box：园区占的地（左、上、右、下）。
+  // main：主楼在园区里的位置（0~1）。故意摆得不整齐。地图是 1000 × 560 的格子。
   places: {
-    boss:  { card: 'bossCard', at: [500, 104], via: [], color: '--c-boss', cls: 'boss' },
-    lineL: { card: 'lineLeftCard', at: [338, 188], via: [[500, 188]], color: '--c-pojia', cls: 'line', side: 'lineLeft' },
-    lineR: { card: 'lineRightCard', at: [662, 188], via: [[500, 188]], color: '--c-qiye', cls: 'line', side: 'lineRight' },
-    site:  { card: 'siteCard', at: [92, 408], via: [[92, 300]], color: '--c-site', detail: true },
-    music: { card: 'musicCard', at: [236, 366], via: [[236, 300]], color: '--c-music', detail: true },
-    auto:  { card: 'autoCard', at: [368, 424], via: [[500, 352], [368, 352]], color: '--c-auto', detail: true },
-    bot:   { card: 'botCard', at: [500, 402], via: [], color: '--c-bot', detail: true },
-    store: { card: 'storeCard', at: [632, 424], via: [[500, 352], [632, 352]], color: '--c-store', detail: true },
-    relay: { card: 'relayCard', at: [764, 366], via: [[764, 300]], color: '--c-relay', detail: true },
-    srv:   { card: 'srvCard', at: [908, 408], via: [[908, 300]], color: '--c-srv', detail: true },
+    boss:  { card: 'bossCard', at: [520, 70], via: [[512, 170]], color: '--c-boss', cls: 'boss', box: [432, 6, 612, 60], main: [0.45, 0.2], mw: 300 },
+    lineL: { card: 'lineLeftCard', at: [330, 135], via: [[440, 215], [370, 160]], color: '--c-pojia', cls: 'line', side: 'lineLeft', box: [232, 34, 356, 122], main: [0.4, 0.6], mw: 250 },
+    lineR: { card: 'lineRightCard', at: [700, 150], via: [[590, 225], [660, 180]], color: '--c-qiye', cls: 'line', side: 'lineRight', box: [668, 50, 792, 136], main: [0.5, 0.35], mw: 250 },
+    site:  { card: 'siteCard', at: [188, 318], via: [[390, 292], [270, 318]], color: '--c-site', detail: true, box: [12, 260, 182, 410], main: [0.7, 0.06] },
+    music: { card: 'musicCard', at: [258, 425], via: [[390, 292], [300, 360]], color: '--c-music', detail: true, box: [138, 434, 336, 553], main: [0.06, 0.1] },
+    auto:  { card: 'autoCard', at: [410, 438], via: [[470, 345], [425, 395]], color: '--c-auto', detail: true, box: [350, 448, 506, 553], main: [0.62, 0.08] },
+    bot:   { card: 'botCard', at: [575, 425], via: [[545, 345]], color: '--c-bot', detail: true, box: [520, 436, 656, 553], main: [0.1, 0.12] },
+    store: { card: 'storeCard', at: [715, 440], via: [[620, 318], [690, 385]], color: '--c-store', detail: true, box: [670, 450, 844, 553], main: [0.55, 0.06] },
+    relay: { card: 'relayCard', at: [862, 318], via: [[640, 278], [770, 300]], color: '--c-relay', detail: true, box: [868, 262, 992, 380], main: [0.3, 0.1] },
+    srv:   { card: 'srvCard', at: [850, 440], via: [[640, 278], [770, 300], [815, 400]], color: '--c-srv', detail: true, box: [858, 398, 994, 553], main: [0.35, 0.06] },
   },
   keyOf(card) { return Object.keys(this.places).find((k) => this.places[k].card === (card && card.id)); },
+  // 固定的"随机"：同一个名字每次得到同一串数，所以地图每次打开都长一个样。
+  rng(name) {
+    let h = 2166136261;
+    for (const ch of String(name)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+    return () => { h += 0x6D2B79F5; let t = h; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  },
   // 把一串拐点连成一条路，拐弯处走圆角。
-  d(pts, r = 34) {
+  d(pts, r = 30) {
     let s = 'M' + pts[0][0] + ' ' + pts[0][1];
     for (let i = 1; i < pts.length; i++) {
       const p = pts[i], a = pts[i - 1], b = pts[i + 1];
@@ -880,17 +909,34 @@ const MAP = {
     return s;
   },
   build() {
-    const P = this.places, C = this.C, road = (pts, cls) => `<path class="rd ${cls || ''}" d="${this.d(pts)}"/>`;
-    let svg = '<path class="river" d="M-20 150 C140 120 210 250 330 240 S470 120 600 110 S860 190 1020 60"/>';
-    // 没有路线经过的普通道路：让它看起来是一座城市，而不只是几条线。
-    svg += road([[0, 300], [1000, 300]]) + road([[500, 0], [500, 560]])
-      + road([[0, 188], [1000, 188]], 's') + road([[0, 352], [1000, 352]], 's')
-      + road([[236, 0], [236, 300]], 's') + road([[764, 0], [764, 300]], 's')
-      + '<path class="rd s" d="M0 95 C180 80 300 60 400 0"/><path class="rd s" d="M1000 150 C860 140 760 60 700 0"/>'
-      + '<path class="rd s" d="M92 300 C92 215 150 188 236 188"/><path class="rd s" d="M908 300 C908 215 850 188 764 188"/>'
-      + '<path class="rd s" d="M236 366 C236 460 300 520 368 560"/><path class="rd s" d="M764 366 C764 460 700 520 632 560"/>'
-      + '<path class="rd" d="M0 540 C250 500 420 546 500 528 S780 500 1000 540"/>'
-      + '<path class="rd s" d="M150 300 C150 110 850 110 850 300" style="opacity:.6"/>';
+    const P = this.places, C = this.C, rand = this.rng('city'), j = (n) => (rand() * 2 - 1) * n;
+    // 水：一条河、一个湖。
+    let svg = '<path class="river" d="M-20 118 C110 150 170 62 300 92 S410 236 520 212 S690 64 820 112 S950 246 1020 212"/>'
+      + '<path class="lake" d="M228 208 C250 186 292 190 306 212 S300 256 268 258 S214 236 228 208 Z"/>';
+    // 园区的地：一块不规则的地皮，带一点这个 Agent 的颜色，虚线是围墙。
+    for (const [k, p] of Object.entries(P)) {
+      const [x0, y0, x1, y1] = p.box, mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+      const v = [[x0 + j(5), y0 + j(4)], [mx + j(16), y0 - 3 + j(4)], [x1 + j(5), y0 + j(4)], [x1 + 3 + j(4), my + j(12)], [x1 + j(5), y1 + j(4)], [mx + j(16), y1 + 2 + j(3)], [x0 + j(5), y1 + j(4)], [x0 - 3 + j(4), my + j(12)]];
+      svg += `<path class="camp" data-rt="${k}" style="--rc:var(${p.color})" d="M${v.map((q) => q[0].toFixed(1) + ' ' + Math.min(558, q[1]).toFixed(1)).join(' L')} Z"/>`;
+    }
+    // 零散的小建筑：不属于任何园区，只是让它像一座城市。避开园区、两块信息面板和 CEO Agent。
+    for (let i = 0, n = 0; i < 400 && n < 78; i++) {
+      const w = 9 + rand() * 20, h = 7 + rand() * 13, x = rand() * (1000 - w), y = rand() * (560 - h);
+      const hit = Object.values(P).some((p) => x < p.box[2] + 7 && x + w > p.box[0] - 7 && y < p.box[3] + 7 && y + h > p.box[1] - 7)
+        || (x < 172 && y < 256) || (x + w > 828 && y < 256) || Math.hypot(x + w / 2 - C[0], y + h / 2 - C[1]) < 46;
+      if (hit) continue;
+      n++;
+      svg += `<rect class="fp" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="1.5" transform="rotate(${[0, 0, 12, -18, 27, -8][Math.floor(rand() * 6)]} ${(x + w / 2).toFixed(1)} ${(y + h / 2).toFixed(1)})"/>`;
+    }
+    // 没有路线经过的道路：弯弯曲曲的环路、斜穿的大道、把各个园区门口连起来的小路，还有一条铁路。
+    svg += ['M40 250 C120 150 300 40 520 30 S900 120 960 260 S820 544 520 550 S60 430 40 250',
+      'M-20 60 C150 110 260 200 390 292 S560 420 640 580', 'M1020 470 C900 430 800 330 640 278 S380 180 300 -20',
+      'M188 318 C150 362 150 402 182 434', 'M258 425 C300 474 344 482 410 438', 'M410 438 C470 470 520 462 575 425', 'M575 425 C620 444 680 452 715 440',
+      'M715 440 C780 428 820 446 850 440', 'M862 318 C876 352 866 384 850 440', 'M330 135 C380 100 450 78 520 70', 'M520 70 C600 78 660 110 700 150',
+      'M700 150 C780 190 842 250 862 318', 'M188 318 C196 250 260 178 330 135', 'M0 500 C60 470 100 500 140 470', 'M905 0 C890 60 930 150 1000 170', 'M60 0 C90 40 150 30 200 36']
+      .map((d, i) => `<path class="rd s" d="${d}"${i === 0 ? ' style="opacity:.75"' : ''}/>`).join('')
+      + '<path class="rd" d="M-20 524 C200 470 330 380 505 270 S800 92 1020 40"/>'
+      + '<path class="rail" d="M-20 398 C150 380 250 524 420 502 S700 352 1020 382"/>';
     let base = '', lit = '', flow = '';
     for (const [k, p] of Object.entries(P)) {
       const d = this.d([C, ...p.via, p.at]);
@@ -911,41 +957,114 @@ const MAP = {
     this.move($('ceoCard'), $('hudLeft'));
     this.move($('ceoLogCard'), $('hudRight'));
     this.move($('usageCard'), $('hudRight'));
+    if (!this.watch) {
+      // 明细有变化（多了一个网站、一台服务器变红……）时，园区里的小楼跟着更新；卡片大小变了也重新摆一遍。
+      let t = 0;
+      const again = () => { clearTimeout(t); t = setTimeout(() => { if (!this.on) return; for (const k of Object.keys(this.places)) this.minis(k); this.layout(); }, 150); };
+      this.watch = new MutationObserver(again);
+      this.sizes = new ResizeObserver(again);
+    }
     for (const [k, p] of Object.entries(this.places)) {
       const card = $(p.card), el = document.createElement('div');
-      el.className = 'place ' + (p.cls || '') + (p.detail ? ' has-detail below' : '');
+      el.className = 'place ' + (p.cls || '') + (p.detail ? ' has-detail' : '');
       el.id = 'place-' + k;
       el.style.left = p.at[0] / 10 + '%'; el.style.top = p.at[1] / 5.6 + '%';
       el.style.setProperty('--glow', `var(${p.color})`); el.style.setProperty('--glow2', `var(${p.color})`);
       p.col = card.parentNode;   // 这个地点原来所在的那一列，明细行都在里面
+      p.rowEls = p.detail ? [...p.col.querySelectorAll(':scope > .rows')] : [];
+      p.sig = '';
+      for (const r of p.rowEls) this.watch.observe(r, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'], characterData: true });
       this.move(card, el);
-      if (p.detail) { card.setAttribute('role', 'button'); card.tabIndex = 0; card.title = '点开看这个地点的明细'; card.dataset.place = k; }
+      this.sizes.observe(card);
+      if (p.detail) { card.setAttribute('role', 'button'); card.tabIndex = 0; card.title = '点开看这个园区的全部明细'; card.dataset.place = k; }
       $('mapPlaces').appendChild(el);
+      this.minis(k);
     }
     this.sync();
   },
   exit() {
     if (!this.on) return;
     this.close();
+    this.watch.disconnect(); this.sizes.disconnect();
     for (const m of this.moved.reverse()) m.parent.insertBefore(m.el, m.next && m.next.parentNode === m.parent ? m.next : null);
     this.moved = [];
-    for (const p of Object.values(this.places)) { const c = $(p.card); if (p.detail) { c.removeAttribute('role'); c.removeAttribute('tabindex'); c.removeAttribute('title'); delete c.dataset.place; } }
+    for (const p of Object.values(this.places)) {
+      const c = $(p.card);
+      for (const prop of ['left', 'top', 'bottom', 'width']) c.style.removeProperty(prop);
+      if (p.detail) { c.removeAttribute('role'); c.removeAttribute('tabindex'); c.removeAttribute('title'); delete c.dataset.place; }
+    }
     $('mapPlaces').innerHTML = '';
     wrap.classList.remove('mapmode');
     this.on = false;
     setTrunks(); setDrops();
   },
-  // 没配置的线路 Agent 不出现在地图上，它的路线也不点亮。
+  // 园区里的小楼：这个 Agent 的每一条明细一栋，写着名字，亮着它的状态灯。
+  minis(k) {
+    const p = this.places[k], el = $('place-' + k);
+    if (!p.detail || !el) return;
+    const items = [];
+    for (const rs of p.rowEls) for (const row of rs.querySelectorAll('.row')) {
+      const l1 = row.querySelector('.l1');
+      if (!l1) continue;
+      const nameEl = l1.querySelector('a,.host') || [...l1.children].find((c) => !c.classList.contains('dot') && !c.classList.contains('ms') && c.textContent.trim());
+      const name = (nameEl ? nameEl.textContent : '').trim();
+      if (!name) continue;
+      const dot = row.querySelector('.dot'), st = row.classList.contains('bad') ? 'bad' : !dot ? '' : dot.classList.contains('bad') ? 'bad' : dot.classList.contains('warn') ? 'warn' : dot.classList.contains('ok') ? 'ok' : '';
+      items.push({ name, st, row });
+    }
+    const sig = JSON.stringify(items.map((it) => [it.name, it.st]));
+    if (sig === p.sig) return;
+    p.sig = sig; p.items = items;
+    for (const b of el.querySelectorAll('.bld')) b.remove();
+    items.slice(0, 9).forEach((it, i) => {
+      const b = document.createElement('div');
+      b.className = 'bld'; b.dataset.place = k; b.dataset.i = i; b.title = it.name + '（点开看明细）';
+      b.innerHTML = `<span class="dot ${it.st}"></span><span class="nm">${esc(it.name)}</span>`;
+      el.appendChild(b);
+    });
+  },
+  // 把每个园区的主楼和小楼摆好：主楼放在定好的位置，小楼在园区里随机找空地，互相不压，也不挡门口；实在放不下的就不摆。
+  layout() {
+    if (!this.on) return;
+    const B = $('mapBox'), W = B.clientWidth, H = B.clientHeight;
+    for (const [k, p] of Object.entries(this.places)) {
+      const el = $('place-' + k), card = $(p.card);
+      if (!el || el.hidden) continue;
+      const gx = p.at[0] / 1000 * W, gy = p.at[1] / 560 * H;
+      const x0 = p.box[0] / 1000 * W - gx, y0 = p.box[1] / 560 * H - gy, bw = (p.box[2] - p.box[0]) / 1000 * W, bh = (p.box[3] - p.box[1]) / 560 * H;
+      const mw = Math.round(Math.min(p.mw || 212, bw - 6));
+      card.style.width = mw + 'px'; card.style.bottom = 'auto';
+      const mh = card.offsetHeight, mx = Math.round(x0 + p.main[0] * Math.max(0, bw - mw)), my = Math.round(y0 + p.main[1] * Math.max(0, bh - mh));
+      card.style.left = mx + 'px'; card.style.top = my + 'px';
+      const taken = [[mx, my, mw, mh + 8], [-14, -14, 28, 28]], rand = this.rng(k);
+      for (const b of el.querySelectorAll('.bld')) {
+        b.hidden = false;
+        const w = b.offsetWidth, h = b.offsetHeight;
+        let ok = false;
+        for (let t = 0; t < 320 && !ok; t++) {
+          const x = x0 + rand() * (bw - w), y = y0 + rand() * (bh - h - 5);
+          if (taken.some((r) => x < r[0] + r[2] + 7 && x + w + 7 > r[0] && y < r[1] + r[3] + 9 && y + h + 9 > r[1])) continue;
+          b.style.left = Math.round(x) + 'px'; b.style.top = Math.round(y) + 'px'; b.style.transform = `rotate(${(rand() * 6 - 3).toFixed(1)}deg)`;
+          taken.push([x, y, w, h]); ok = true;
+        }
+        if (!ok) b.hidden = true;
+      }
+    }
+  },
+  // 没配置的线路 Agent 不出现在地图上，它的路线和地皮也不显示。
   sync() {
     if (!this.on) return;
+    let changed = false;
     for (const [k, p] of Object.entries(this.places)) {
       if (!p.side) continue;
       const off = $(p.side).classList.contains('off');
+      if ($('place-' + k).hidden !== off) changed = true;
       $('place-' + k).hidden = off;
       for (const el of document.querySelectorAll(`#mapSvg [data-rt="${k}"]`)) el.style.display = off ? 'none' : '';
     }
+    if (changed) this.layout();
   },
-  // 一条路线上的一串点（换算成和光点同一套坐标）。back 为 true 时是从地点开回 CEO Agent。
+  // 一条路线上的一串点（换算成和光点同一套坐标）。back 为 true 时是从园区开回 CEO Agent。
   path(key, back) {
     const el = this.routes[key];
     if (!el) return null;
@@ -953,17 +1072,17 @@ const MAP = {
     for (let i = 0; i <= n; i++) { const p = el.getPointAtLength(L * i / n); pts.push({ x: (r.left + p.x / this.W * r.width - w.left) / z, y: (r.top + p.y / this.H * r.height - w.top) / z }); }
     return back ? pts.reverse() : pts;
   },
-  // 点一个地点：把它那一列的明细行搬进右边的面板；关掉时搬回去。
-  show(key) {
+  // 点园区里的一栋楼：把这个 Agent 的明细行搬进右边的面板；关掉时搬回去。keep 为 true 时已经开着就不关。
+  show(key, keep) {
     const p = this.places[key];
     if (!p || !p.detail) return;
-    if (this.open === key) return this.close();
+    if (this.open === key) { if (!keep) this.close(); return; }
     this.close();
     this.open = key;
     const panel = $('placePanel');
     panel.style.setProperty('--glow', `var(${p.color})`); panel.style.setProperty('--glow2', `var(${p.color})`); panel.style.setProperty('--tree', `color-mix(in srgb,var(${p.color}) 35%,var(--line))`);
     $('ppTitle').textContent = ($(p.card).querySelector('.head') || $(p.card)).textContent.trim();
-    this.rows = [...p.col.querySelectorAll(':scope > .rows')].map((el) => ({ el, next: el.nextSibling }));
+    this.rows = p.rowEls.map((el) => ({ el, next: el.nextSibling }));
     for (const r of this.rows) $('ppBody').appendChild(r.el);
     panel.hidden = false; $('hudRight').hidden = true;
     this.light(key);
@@ -982,15 +1101,25 @@ const MAP = {
     this.open = '';
     this.dim(was);
   },
+  // 点一栋小楼：打开它所在园区的明细，并把对应的那一行滚到眼前、亮一下。
+  showItem(key, i) {
+    this.show(key, true);
+    const it = (this.places[key].items || [])[i];
+    if (!it || !it.row.isConnected) return;
+    it.row.scrollIntoView({ block: 'center' });
+    it.row.style.setProperty('--pc', `var(${this.places[key].color})`);
+    it.row.classList.add('hit');
+    setTimeout(() => it.row.classList.remove('hit'), 900);
+  },
   // 底部面板（任务、终端、文件……）打开时，地图缩到面板上方，整张图始终在一屏里，不用上下滑动。
   size() {
     if (!this.on) return;
     const t = $('term'), th = t.hidden || t.classList.contains('max') ? 0 : t.getBoundingClientRect().height;
     const z = wrap.getBoundingClientRect().width / wrap.offsetWidth || 1;
     $('mapBox').style.height = Math.max(430, Math.round((innerHeight - th) / z - 118)) + 'px';
+    this.layout();
   },
-  // 路线平时不亮。一次通讯经过哪条路线，哪条就亮起来，过一会儿再暗下去；鼠标停在房子上、点开房子时，它的路线也亮。
-  timers: {},
+  // 路线平时不亮。一次通讯经过哪条路线，哪条就亮起来，过一会儿再暗下去；鼠标停在园区上、点开园区时，它的路线也亮。
   light(key, ms) {
     for (const el of document.querySelectorAll(`#mapSvg [data-rt="${key}"]`)) el.classList.add('lit');
     clearTimeout(this.timers[key]);
@@ -1000,7 +1129,7 @@ const MAP = {
     if (this.open === key || this.hover === key) return;
     for (const el of document.querySelectorAll(`#mapSvg [data-rt="${key}"]`)) el.classList.remove('lit');
   },
-  // 一串要走的点，两头落在哪个地点上，就点亮哪个地点的路线。
+  // 一串要走的点，两头落在哪个园区门口，就点亮哪个园区的路线。
   lightFor(points, ms) {
     if (!this.on || !points || points.length < 2) return;
     const a = points[0], b = points[points.length - 1];
@@ -2279,7 +2408,7 @@ setInterval(() => { $('clock').textContent = new Date().toLocaleTimeString('zh-C
 MAP.fit();
 addEventListener('resize', () => MAP.fit());
 setInterval(() => MAP.sync(), 2000);
-$('mapPlaces').addEventListener('click', (e) => { const c = e.target.closest('[data-place]'); if (c && !e.target.closest('button,a')) MAP.show(c.dataset.place); });
+$('mapPlaces').addEventListener('click', (e) => { const c = e.target.closest('[data-place]'); if (!c || e.target.closest('button,a')) return; if (c.classList.contains('bld')) MAP.showItem(c.dataset.place, Number(c.dataset.i)); else MAP.show(c.dataset.place); });
 $('mapPlaces').addEventListener('keydown', (e) => { const c = e.target.closest('[data-place]'); if (c && e.target === c && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); MAP.show(c.dataset.place); } });
 $('ppClose').addEventListener('click', () => MAP.close());
 // 鼠标停在一栋房子上，它的路线亮起来；移开就暗下去。
