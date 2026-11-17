@@ -326,8 +326,12 @@ revise 和 restart：只在 action 是 bot、而且那个 Bot 正在忙着主人
 - restart 填 true：主人是要它放下手上的，换成另一件不相干的事（比如"算了，改查天气"）。会让它先停下，再做新的。这时 task 写新任务的完整说明。
 两个都是 false：那个 Bot 没在忙，或者它在忙的不是这次对话里交代的事。
 
-task 怎么写：只转述，不加料。把主人说的要求原样、完整地写成一段任务说明，尽量用他自己的话；只做三件事：纠正明显的识别错字，补上从上文对话里能确定的指代（"刚才那个""它"），修改要求时把原来的要求和这次的修改合成一段。
-task 里严禁出现主人没有说过的东西，包括但不限于：他没要求的步骤和做法、他没要求的交付物（比如"交回链接""截一张图""写一份介绍""发布成网页""列出清单"）、他没提的条件和限制、你觉得"顺便做了更好"的事、遇到某种情况该怎么办的预案。主人说"找一个跳舞的女主播"，task 就只是"找一个跳舞的女主播"加上必要的上下文，不要替他规定要交回什么。对方怎么做、交回什么由对方自己判断。主人的要求太含糊、不补充就没法做时，用 reply 问他，不要自己替他补全。写完 task 自查一遍：每一句要求都能在主人说过的话里找到出处，找不到的删掉。
+你是 CEO，不是传话筒。主人说的是他要什么（目标），怎么把它办成是你的事：
+- 自己拿主意。能从上文、监控数据、主人定过的规矩、常识里合理定下来的，就直接定，不要回头问主人；在 say 里用半句话说一下你是怎么定的就行（"我让它……"）。主人的话残缺、识别得不全时，结合上文按最可能的意思去办，不要反问"你是不是想……"。
+- 只有这几种情况才问主人：要花钱；要发出去收不回、要删除或修改东西，而且关键信息（给谁、哪一个、多少）你确定不了；只有主人本人才知道的东西（密码、他没说过的个人偏好）。其余的一律自己定。问的时候一次只问一个问题，并且给出你的建议（"我打算……，行不行"）。
+- 把事情想全再派。交给对方之前先想：要办成这件事，对方需要知道什么、该怎么做才不会敷衍、做到什么程度才算完成。把这些写进 task。
+task 怎么写：目标用主人的原话，办法由你补全。先原样写清主人要的是什么（纠正识别错字，补上从上文能确定的指代）；再写你定的做法和完成标准。完成标准以主人要的为准，不要定得比他要的更高，也不要规定他没要的交付内容（截图、附加数据、说明文档）；做法只写保证不敷衍、不出错所必需的（比如"每个分类都要滚到底""至少比较六个再挑""连看几张截图确认"），让对方一次做对。修改要求时把原来的要求和这次的修改合成一段。
+你补全的只能是"怎么把主人要的这件事办成、办好"，不能替主人增加或改变他要的东西：不要加他没要的另一件事、另一份成果（他只要找人，你不要让对方再写介绍、发布网页）；不要改他的条件；不要把上一件事里他提过的限制自动带进新的事（上次说的"不要送礼物"只属于上次那件事，除非他说的是"以后都……"）。主人定过的长期规矩（"以后都……""给它设个规则……"）则每次都要带上。
 转交要严谨。不加料不等于写得含糊：task 是对方唯一能看到的交代，必须让它不可能办错。具体做到：
 1. 对象写准：是哪个平台、哪个账号、哪个人、哪个直播间，用上文里已经确定的确切名字，不用"那个""刚才的"。
 2. 动作写准：主人说的动作有容易混淆的近似做法时，点明是哪一个、不是哪一个（比如"送礼物栏里名叫小心心的礼物，不是点赞，也不是名字相近的别的礼物"）。数量、名称照主人说的写，主人没说数量就写"一个"之类他原话里的量，不要自己定。
@@ -345,6 +349,55 @@ hangup：只有正在通话时才有用。主人表示这通电话可以结束�
 ${PERSONA}
 如果给你的数据里"正在通话"是 true：主人正在和你打语音电话，say 会被直接念给他听。这时 say 要像打电话一样口语化、简短（一般不超过 50 字），不要出现网址、代码、符号和列表，数字和英文名照常说。`;
   const SPEAK_PROMPT = PERSONA.replace('这个性格只体现在 say 里；task 是交给下属的任务说明，照常写得清楚、正经，不带脏话。', '') + '\n你是 CEO Agent，正在和主人打语音电话。下属把一件事的结果交回来了，你要把结果口头转告主人。只输出要说的话本身：口语化，不超过 80 字，先说谁做完了（或没做成），再说最要紧的结论；不要念网址、代码、符号和列表，有文件或链接就说"详细的在通话记录里"。';
+  // 结果交回来之后，CEO 先自己验收：办成了没有、要不要打回去返工、有没有必须主人拿主意的地方。
+  const CHECK_PROMPT = `你是 CEO Agent。你之前把主人交代的一件事派给了下属（一个 Bot 或者专用 Agent），现在它把结果交回来了。主人把事情交给你，就是不想自己一句句盯——由你来验收。
+只输出一个 JSON，不要输出别的：{"verdict":"ok 或 redo 或 ask","instruction":"verdict 是 redo 时：交给对方的返工说明","say":"对主人说的话"}
+- redo：结果没有真正办成主人要的事，而且对方再做一次就能办成。包括：明显没做完或者不完整；敷衍、答非所问；因为一点小歧义、小困难就停下来等指示；对方回来问了一个你自己就能拿主意的问题；对方说做不到，但换个办法显然可以。这时由你替主人做决定，在 instruction 里写清楚：上一次差在哪里、你定的是哪一种、这次具体该怎么做、做到什么程度算完成。say 用一句话告诉主人你把它打回去了、为什么（不超过 50 字）。
+- ask：必须主人本人拿主意才能继续。只限于：要花钱；要发出去收不回、要删改东西，而关键信息从上文确定不了；只有主人才知道的东西；或者已经返工两次还是不行。say 里把情况和要他决定的那一个问题说清楚，并给出你的建议。
+- ok：事情办成了，或者结果就是一个如实的结论（包括"确实做不到"且换办法也没用）。say 是你口头转告主人的话：先说谁做完了，再说最要紧的结论。
+验收的标准是主人最初要的东西，不是你当初交代时自己加的细节：主人要的那个结论、那件事已经有了，就是 ok——哪怕你交代的某些附带内容（格式、截图、额外的数据、来源说明）没给，也不要为这些打回去，在 say 里照实转告已有的结论就行。返工很费时间，只有主人要的事本身没办成才值得打回。对方把事办成了、顺带问了一个要主人决定的问题（比如"要不要现在送"），也是 ok：在 say 里先说结论，再把它的问题转告主人。不要看对方自己说"已完成"就算数，要看结果里有没有主人要的东西。"已经返工次数"达到 2 就不要再 redo。
+say 一律口语化、简短（ok 和 ask 不超过 80 字），不要念网址、代码、符号和列表，有文件或链接就说"详细的在通话记录里"。instruction 是给下属的，写得正经、具体，不带玩笑。
+${PERSONA.replace('这个性格只体现在 say 里；task 是交给下属的任务说明，照常写得清楚、正经，不带脏话。', '')}`;
+  function parseCheck(text) {
+    try {
+      const j = JSON.parse(String(text).slice(String(text).indexOf('{'), String(text).lastIndexOf('}') + 1));
+      if (!['ok', 'redo', 'ask'].includes(j.verdict)) return null;
+      return { verdict: j.verdict, instruction: String(j.instruction || '').trim().slice(0, 6000), say: String(j.say || '').trim().slice(0, 400) };
+    } catch (e) { return null; }
+  }
+  // m 是当初派活的那条记录，it 是刚交回来的结果。返回 true 表示已经打回去返工了（这份结果不用再念给主人）。
+  async function check(m, it) {
+    const tries = m.tries || 0;
+    let v = null;
+    try {
+      v = parseCheck((await ceoCall(CHECK_PROMPT, JSON.stringify({
+        主人最初的要求: m.ask || m.task, 你当初交代的任务: clip(m.task, 3000), 交给了谁: m.to, 对方交回的结果: clip(it.text, 6000), 对方自己说做成了: it.ok, 已经返工次数: tries,
+        最近的对话: log.slice(-16).filter((x) => x !== it).map((x) => ({ 谁: x.role === 'me' ? '主人' : x.role === 'result' ? x.from + '的结果' : 'CEO Agent', 内容: clip(x.task || x.text, 300) })),
+      }), 900)).text);
+    } catch (e) { /* 验收不了就照原样转告 */ }
+    if (v && v.verdict === 'redo' && v.instruction && tries < 2) {
+      try {
+        let ref;
+        if (m.ref.kind === 'bot') {
+          const before = (await bots('/api/chat?bot=' + m.ref.id + '&since=0')).messages.reduce((a, x) => Math.max(a, x.id), 0);
+          await bots('/api/send', { bot: m.ref.id, text: '【CEO Agent 看了你交回的结果，要你返工】\n' + v.instruction });
+          ref = { ...m.ref, before };
+        } else {
+          const made = await tasks('/api/create', { prompt: '【CEO Agent 看了你交回的结果，要你返工】\n' + v.instruction, continueFrom: m.ref.id }).catch(() => tasks('/api/create', { prompt: v.instruction }));
+          ref = { kind: 'agent', id: made.id };
+        }
+        it.speak = ''; it.redo = true; save();
+        note({ verdict: 'dispatch', who: '', what: 'CEO Agent 验收没通过，把事情打回给' + m.to + '返工（第 ' + (tries + 1) + ' 次）', reason: v.instruction.slice(0, 120) });
+        console.log(`[验收] ${m.to} 交回的结果没通过，打回返工（第 ${tries + 1} 次）`);
+        push({ role: 'ceo', text: v.say || ('我看了' + m.to + '交的，不行，让它返工了。'), to: m.to, task: v.instruction, ref, state: 'running', tries: tries + 1, ask: m.ask || m.task, auto: true });
+        return true;
+      } catch (e) { console.log('[验收] 想打回返工但没发出去：' + String(e.message || e).slice(0, 100)); }
+    }
+    if (v) console.log(`[验收] ${m.to} 交回的结果：${v.verdict === 'ask' ? '要主人拿主意' : '通过'}`);
+    if (v && v.say && v.verdict !== 'redo') { it.speak = forSpeech(v.say).slice(0, 300); save(); for (const r of rts.values()) rtSay(r, it.speak); return false; }
+    await summarize(it);
+    return false;
+  }
   // 念之前把网址和排版符号去掉。
   const forSpeech = (s) => String(s || '').replace(/https?:[^ \n）)]+/g, '链接').replace(/[*_#`>|~]/g, '').replace(/\s+/g, ' ').trim().slice(0, 400);
   async function summarize(it) {
@@ -500,7 +553,7 @@ ${PERSONA}
           const before = (await bots('/api/chat?bot=' + bot.id + '&since=0')).messages.reduce((m, x) => Math.max(m, x.id), 0);
           await bots('/api/send', { bot: bot.id, text: '【主人通过 CEO Agent 交代的事】\n' + (d.task || text) });
           note({ verdict: 'dispatch', who: '', what: '主人口头交代的事，交给了 Bot「' + bot.name + '」', reason: (d.task || text).slice(0, 120) });
-          return say({ role: 'ceo', text: d.say || '已经交给「' + bot.name + '」。', to: 'Bot「' + bot.name + '」', task: d.task || text, ref: { kind: 'bot', id: bot.id, name: bot.name, before }, state: 'running' });
+          return say({ role: 'ceo', text: d.say || '已经交给「' + bot.name + '」。', to: 'Bot「' + bot.name + '」', task: d.task || text, ask: text, ref: { kind: 'bot', id: bot.id, name: bot.name, before }, state: 'running' });
         }
       }
       if (d.action === 'agent') {
@@ -512,7 +565,7 @@ ${PERSONA}
         const continued = Boolean(made);
         if (!made) made = await tasks('/api/create', { prompt });
         note({ verdict: 'dispatch', who: '', what: '主人口头交代的事，交给了专用 Agent' + (continued ? '（接着上一件继续）' : ''), reason: prompt.slice(0, 120) });
-        return say({ role: 'ceo', text: d.say || '已经交给专用 Agent。', to: '专用 Agent', task: prompt, ref: { kind: 'agent', id: made.id }, state: 'running' });
+        return say({ role: 'ceo', text: d.say || '已经交给专用 Agent。', to: '专用 Agent', task: prompt, ask: text, ref: { kind: 'agent', id: made.id }, state: 'running' });
       }
       return say({ role: 'ceo', text: (opts.replyText && opts.replyText()) || d.say || '我没有想好怎么回答，换个说法再说一遍。' });
     } catch (e) {
@@ -527,7 +580,7 @@ ${PERSONA}
     ticking = true;
     try {
       for (const m of log.filter((x) => x.state === 'running' && x.ref)) {
-        const done = (ok, text) => { m.state = ok ? 'done' : 'failed'; summarize(push({ role: 'result', from: m.to, ok, text: clip(text, 1500), kind: m.ref.kind })); };
+        const done = (ok, text) => { m.state = ok ? 'done' : 'failed'; check(m, push({ role: 'result', from: m.to, ok, text: clip(text, 1500), kind: m.ref.kind })).catch(() => {}); };
         try {
           if (Date.now() - m.at > 3 * 3600000) { m.state = 'unknown'; save(); continue; }   // 太久了就不再盯着
           if (m.ref.kind === 'agent') {

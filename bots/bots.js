@@ -107,7 +107,9 @@ async function callModel(bot, list, lastImage, signal) {
     else if (m.role === 'tool') messages.push({ role: 'tool', tool_call_id: m.callId, content: m.text || '（没有输出）' });
     else if (m.role === 'note') messages.push({ role: 'user', content: '【系统提示】' + m.text });
   }
-  if (vision && lastImage) messages.push({ role: 'user', content: [{ type: 'text', text: '【系统】这是刚才那张截图，请看图后继续。' }, { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + lastImage } }] });
+  const shots = Array.isArray(lastImage) ? lastImage : lastImage ? [{ image: lastImage, fresh: true }] : [];
+  if (vision && shots.length) messages.push({ role: 'user', content: [{ type: 'text', text: `【系统】下面是你最近截的 ${shots.length} 张图，按时间从旧到新排列${shots[shots.length - 1].fresh ? '，最后一张是刚刚截的' : '（这一步没有新截图）'}。你确实看得见它们。更早的截图不会再附上，以你当时写下的观察为准——所以每看到一张新截图，先用一两句话写下你看到了什么，再做下一步。` },
+    ...shots.map((x) => ({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + x.image } }))] });
   const tools = toolsFor(bot).map((t) => ({ type: 'function', function: { name: t.name, description: t.desc,
     parameters: { type: 'object', properties: Object.fromEntries(Object.entries(t.params).map(([k, v]) => [k, { type: v[0], description: v[1] }])), required: t.required || [] } } }));
   const res = await fetch(LLM.base + '/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + LLM.key },
@@ -183,7 +185,7 @@ ${toolsFor(bot).map((t) => `- ${t.name} ${JSON.stringify(Object.fromEntries(Obje
 你有一台自己的电脑（Linux，带桌面和 Chromium 浏览器，能上网），用户可以实时看到你的屏幕。现在是${now}（${TZ}）。
 
 ${how}
-${vision ? '你看得懂截图：截图会直接给你看。优先用 browser_* 的编号方式操作网页；只有编号方式做不到（画布、桌面程序）时才用截图加坐标。' : '你看不到图片：截图只会保存成文件，可以 deliver 给用户；操作网页请用 browser_* 的编号方式。'}
+${vision ? '你看得懂截图：截图会直接给你看，而且最近的 3 张会一直带在身边。更早的截图不再附带，所以每看到一张新截图，都要先用一两句话写下你看到了什么（长相、穿着、在做什么、画面质量），再调用下一个工具——这几句话就是你以后做比较的依据。不要因为历史记录里只剩下文件路径，就说自己没看见过图。优先用 browser_* 的编号方式操作网页；只有编号方式做不到（画布、桌面程序）时才用截图加坐标。' : '你看不到图片：截图只会保存成文件，可以 deliver 给用户；操作网页请用 browser_* 的编号方式。'}
 
 ## 最重要的规则
 - 你只能通过工具接触外部世界。没有调用工具，就没有搜索过、没有打开过网页、没有写过文件。绝对不要描述你没有实际执行的操作，不要编造工具结果、文件或下载链接。
@@ -227,14 +229,14 @@ async function runSub(botId, args, signal, run) {
     persona: `你是由 Bot"${parent.name}"临时创建的子代理${role ? '，你的身份是：' + role : ''}。你看不到它和用户之间的对话，只知道下面交给你的任务。你要独立判断：不迎合、不客套，该否定就明确否定并说出理由；需要事实依据时用工具自己查证，不要凭空断言。你的最终回答是交回给创建你的那个 Bot 的，要先写结论，再写依据。` };
   const list = [{ role: 'user', text: task }];
   const steps = [];
-  let lastImage = null, bad = 0, n = 0, report = '';
+  let lastImage = [], bad = 0, n = 0, report = '';
   for (;;) {
     if (signal.aborted) throw new Error('aborted');
     const last = n >= SUB_STEPS;
     if (last) list.push({ role: 'note', text: '你的步数用完了。现在直接给出最终结论，不要再调用工具。' });
     run.status = `子代理 · ${n ? '已做 ' + n + ' 步 · ' : ''}正在思考…`;
     const reply = await callModel(sub, list, lastImage, signal);
-    lastImage = null;
+    for (const x of lastImage) x.fresh = false;
     if (reply.bad && !last) {
       if (++bad >= 3) { report = reply.text || '（子代理连续三次没能写出正确的工具调用）'; break; }
       if (reply.text) list.push({ role: 'assistant', text: reply.text });
@@ -247,7 +249,7 @@ async function runSub(botId, args, signal, run) {
       n++;
       run.status = `子代理 · 第 ${n} 步 · ${call.name}`;
       const r = SUB_BLOCK.has(call.name) ? { ok: false, output: '子代理不能用这个工具。' } : await toolCall(botId, call.name, call.args, signal, run);
-      if (r.image) lastImage = r.image;
+      if (r.image) { lastImage.push({ image: r.image, fresh: true }); while (lastImage.length > 3) lastImage.shift(); }
       steps.push({ name: call.name, arg: argBrief(call.args), ok: r.ok !== false });
       list.push({ role: 'tool', callId: call.id, name: call.name, text: clip(r.output || '', 14000) });
     }
@@ -294,7 +296,7 @@ async function runBot(botId) {
   const ctrl = new AbortController();
   const run = { ctrl, step: 0, status: '正在思考…', startedAt: Date.now(), inbox: [] };
   runs.set(botId, run);
-  let lastImage = null, badCount = 0;
+  let lastImage = [], badCount = 0;
   try {
     for (;;) {
       const bot = getBot(botId);
@@ -303,13 +305,12 @@ async function runBot(botId) {
       for (const t of run.inbox.splice(0)) push(botId, { role: 'user', text: '【做到一半时补充的要求：接着你手上的事做，不要从头再来；和之前的要求冲突的地方以这条为准】\n' + t });
       run.status = run.step ? `已做 ${run.step} 步 · 正在思考…` : '正在思考…';
       let reply;
-      try { reply = await callModel(bot, chatOf(botId), lastImage, ctrl.signal); }
+      try { reply = await callModel(bot, chatOf(botId), lastImage, ctrl.signal); for (const x of lastImage) x.fresh = false; }
       catch (e) {
         if (ctrl.signal.aborted) break;
         push(botId, { role: 'assistant', error: true, text: `模型 ${showModel(bot.model)} 没有答复：${String(e.message || e).slice(0, 200)}。可以稍后发一句"继续"，或者在设置里给我换一个模型。` });
         break;
       }
-      lastImage = null;
       if (reply.bad) {
         if (reply.text) push(botId, { role: 'assistant', text: reply.text });
         push(botId, { role: 'note', text: reply.bad });
@@ -327,7 +328,7 @@ async function runBot(botId) {
           run.status = `第 ${run.step} 步 · ${call.name}`;
           try { r = await toolCall(botId, call.name, call.args, ctrl.signal, run); } catch (e) { r = { ok: false, output: '用户按了停止，这一步被中断。' }; }
         }
-        if (r.image) lastImage = r.image;
+        if (r.image) { lastImage.push({ image: r.image, fresh: true }); while (lastImage.length > 3) lastImage.shift(); }
         push(botId, { role: 'tool', callId: call.id, name: call.name, ok: r.ok !== false, text: clip(r.output || '', 14000), image: r.imagePath || undefined, file: r.file || undefined, link: r.link || undefined, sub: r.sub || undefined, ext: r.ext || undefined });
       }
       if (ctrl.signal.aborted) break;
