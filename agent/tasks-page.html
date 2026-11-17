@@ -99,6 +99,13 @@ button.no:hover{border-color:var(--bad);color:var(--bad)}
 .pics .pic{max-width:min(420px,100%);margin:0}
 .piclabel{font-size:12px;color:var(--mute);margin:12px 0 6px}
 @media (max-width:640px){aside{width:120px}}
+/* 科技感主题（和首页一致）：固定深色，只改配色和细节，不改布局。 */
+:root{color-scheme:dark;--bg:#050b16;--card:#0a1728;--card2:#0e2038;--line:#1c3552;--text:#e6f2ff;--sub:#8fb2d4;--mute:#56738f;--ok:#2ee6a6;--warn:#ffb020;--bad:#ff4d6d;--run:#2de2ff}
+html{background:var(--bg)}
+body{background-color:var(--bg);background-image:linear-gradient(rgba(45,226,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(45,226,255,.035) 1px,transparent 1px);background-size:48px 48px;background-attachment:fixed}
+button,input,textarea,select{border-radius:4px}
+::selection{background:rgba(45,226,255,.3)}
+*{scrollbar-color:#24507f transparent}
 </style>
 </head>
 <body>

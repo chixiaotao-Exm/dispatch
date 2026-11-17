@@ -375,52 +375,70 @@ body.term-open{padding-bottom:var(--term-h,56vh)}
 .hit{box-shadow:0 0 0 1px var(--pc),0 0 22px 2px var(--pc)}
 @media (prefers-reduced-motion: reduce){.card,.row,.v,.bar::before,.bar::after,.rows::before,.row::before{animation:none!important}}
 
-/* ================= 科技感主题（车机导航风格）=================
-   整页固定深色；背景是一张向远处倾斜的夜间导航地图：路网、发光的规划路线、地平线上的光。
+/* ================= 科技感主题（导航路线风格）=================
+   整页固定深色。各个 Agent 之间的连接线画成导航里的"规划路线"：一条有颜色的路，路中间的白色标线顺着汇报方向流动；
+   路口有圆形的节点；真实发生的通讯是一个导航箭头沿着路线开过去，拐弯时跟着转向。
    这一段放在样式表最后，只改外观，不改任何布局和功能。 */
 :root{
   color-scheme:dark;
-  --bg:#040a14;--card:#0a1728;--line:#1c3552;--text:#e6f2ff;--sub:#8fb2d4;--mute:#56738f;
+  --bg:#050b16;--card:#0a1728;--line:#1c3552;--text:#e6f2ff;--sub:#8fb2d4;--mute:#56738f;
   --ok:#2ee6a6;--warn:#ffb020;--bad:#ff4d6d;--accent:#2de2ff;--glow2:#7df3ff;
   --c-boss:#ffb547;--c-site:#4fe3ff;--c-srv:#b48cff;--c-relay:#ff7ab8;--c-music:#6dffb3;--c-pojia:#ff6b4a;--c-qiye:#cbd5e1;
   --c-store:#c6f24e;--c-auto:#e879f9;--c-bot:#22d3ee;--c-agent:#ff9a4d;
   --hud:"Bahnschrift","DIN Alternate","DIN Condensed","Segoe UI",system-ui,"Microsoft YaHei",sans-serif;
+  --rw:6px;   /* 路线的宽度 */
 }
+/* 背景：平的深色底图，只有很淡的网格，像导航地图的底色 */
 html{background:var(--bg)}
-body{background:transparent}
+body{background:
+  radial-gradient(90% 55% at 50% 0%,rgba(45,226,255,.10),transparent 70%),
+  linear-gradient(rgba(45,226,255,.04) 1px,transparent 1px) 0 0/48px 48px,
+  linear-gradient(90deg,rgba(45,226,255,.04) 1px,transparent 1px) 0 0/48px 48px;
+  background-attachment:fixed}
 
-/* ---- 背景：倾斜的导航地图 ---- */
-.navbg{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none;
-  background:radial-gradient(120% 60% at 50% 30%,#0f2a4d 0%,#071426 45%,var(--bg) 78%)}
-/* 地面：向远处倾斜的一整块，上面是网格和路网 */
-.navbg .plane{position:absolute;left:-40%;right:-40%;bottom:0;aspect-ratio:1/2;transform-origin:50% 100%;transform:perspective(112vh) rotateX(60deg)}
-.navbg .grid{position:absolute;inset:-160px 0 0 0;
+/* ---- 路线：把原来的细线换成"规划路线" ---- */
+/* 竖着走的路 */
+.v,.rows::before,.card.line::after,.card.line .up-v{
+  --rc:var(--lc,var(--glow));--road:color-mix(in srgb,var(--rc) 58%,#06101c);
+  width:var(--rw);border-radius:3px;
   background:
-    linear-gradient(rgba(45,226,255,.16) 1.5px,transparent 1.5px) 0 0/160px 160px,
-    linear-gradient(90deg,rgba(45,226,255,.16) 1.5px,transparent 1.5px) 0 0/160px 160px,
-    linear-gradient(rgba(45,226,255,.055) 1px,transparent 1px) 0 0/40px 40px,
-    linear-gradient(90deg,rgba(45,226,255,.055) 1px,transparent 1px) 0 0/40px 40px;
-  animation:navDrive 9s linear infinite}
-@keyframes navDrive{to{transform:translateY(160px)}}
-.navbg svg{position:absolute;left:0;bottom:0;width:100%;height:100%}
-.navbg .road{fill:none;stroke:#285a8f;stroke-linecap:round;stroke-linejoin:round;opacity:.55}
-.navbg .road.minor{stroke:#1f4873;opacity:.5}
-.navbg .block{fill:rgba(45,226,255,.035);stroke:rgba(90,170,230,.22);stroke-width:2}
-.navbg .route-halo{fill:none;stroke:#2de2ff;stroke-width:34;stroke-linecap:round;stroke-linejoin:round;opacity:.13}
-.navbg .route{fill:none;stroke:#2de2ff;stroke-width:13;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 10px #2de2ff)}
-.navbg .route-flow{fill:none;stroke:#eaffff;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:6 54;animation:navFlow 2.4s linear infinite}
-@keyframes navFlow{to{stroke-dashoffset:-60}}
-.navbg .pin{fill:#ffb547;filter:drop-shadow(0 0 12px #ffb547)}
-.navbg .ping{fill:none;stroke:#ffb547;stroke-width:4;transform-box:fill-box;transform-origin:center;animation:navPing 2.6s ease-out infinite}
-@keyframes navPing{from{transform:scale(.5);opacity:.9}to{transform:scale(3.2);opacity:0}}
-/* 远处的雾和地平线上的光，把地图上沿收掉；再压一层暗角，保证前面的文字清楚 */
-.navbg .fog{position:absolute;inset:0;
+    linear-gradient(180deg,rgba(255,255,255,.95) 0 42%,transparent 42%) 50% 0/2px var(--d) repeat-y,
+    linear-gradient(var(--road),var(--road));
+  box-shadow:0 0 0 1px color-mix(in srgb,var(--rc) 30%,transparent),0 0 10px color-mix(in srgb,var(--rc) 50%,transparent);
+  animation-name:routeY}
+@keyframes routeY{to{background-position:50% var(--d),0 0}}
+/* 横着走的路 */
+.bar::before,.bar::after,.row::before,.side .h,.card.line .up-h{
+  --rc:var(--lc,var(--glow));--road:color-mix(in srgb,var(--rc) 58%,#06101c);
+  height:var(--rw);border-radius:3px;
   background:
-    linear-gradient(180deg,var(--bg) 0%,var(--bg) 44%,rgba(4,10,20,.88) 49%,rgba(4,10,20,0) 66%),
-    radial-gradient(64% 12% at 50% 48%,rgba(45,226,255,.3),transparent 70%),
-    radial-gradient(130% 95% at 50% 70%,transparent 50%,rgba(2,6,13,.8) 100%)}
-.navbg .horizon{position:absolute;left:8%;right:8%;top:48%;height:1px;background:linear-gradient(90deg,transparent,rgba(125,243,255,.75),transparent);box-shadow:0 0 18px 2px rgba(45,226,255,.35)}
-@media (prefers-reduced-motion:reduce){.navbg .grid,.navbg .route-flow,.navbg .ping{animation:none}}
+    linear-gradient(90deg,rgba(255,255,255,.95) 0 42%,transparent 42%) 0 50%/var(--d) 2px repeat-x,
+    linear-gradient(var(--road),var(--road));
+  box-shadow:0 0 0 1px color-mix(in srgb,var(--rc) 30%,transparent),0 0 10px color-mix(in srgb,var(--rc) 50%,transparent);
+  animation-name:routeX}
+@keyframes routeX{to{background-position:var(--d) 50%,0 0}}
+.v{--d:20px}.rows::before{--d:22px}.row::before{--d:12px}.bar::before,.bar::after{--d:36px}.side .h{--d:32px}.card.line .up-h{--d:32px}
+.bar{height:var(--rw)}
+/* 路变宽了，位置跟着挪一下，保证还在正中间 */
+.rows::before{left:12px}
+.row::before{left:-24px;width:24px;top:calc(50% - var(--rw) / 2)}
+.card.line::after,.card.line .up-v{left:calc(50% - var(--rw) / 2)}
+.card.line .up-h{bottom:calc(100% + var(--rise,0px) - var(--rw))}
+.side.left .up-h{left:calc(50% - var(--rw) / 2)}
+.side.right .up-h{right:calc(50% - var(--rw) / 2)}
+/* 路口：每一列从横向主路分出来的地方有一个圆形节点；每一行的支路尽头是一个到达点 */
+.cols>div>.v{position:relative}
+.cols>div>.v::before{display:none;content:"";position:absolute;left:50%;top:-8px;width:14px;height:14px;margin-left:-7px;border-radius:50%;background:var(--bg);border:3px solid var(--lc,var(--glow));box-shadow:0 0 10px var(--lc,var(--glow));box-sizing:border-box}
+@media (min-width:1430px){.cols>div>.v::before{display:block}}   /* 只有顶部那条横向主路显示出来的时候才画路口 */
+.row::after{content:"";position:absolute;left:-5px;top:calc(50% - 5px);width:10px;height:10px;border-radius:50%;background:var(--glow);border:2px solid var(--bg);box-shadow:0 0 8px var(--glow);box-sizing:border-box;pointer-events:none}
+/* 线旁的小字像路牌 */
+.tag{letter-spacing:.1em;margin:5px 0}
+/* 一行都没有的列，不画那一小截断头路 */
+.rows:empty::before{display:none}
+
+/* ---- 真实通讯：导航箭头沿路线行驶，后面跟两个拖尾光点 ---- */
+.pkt.nav{--sz:18px;border-radius:0;background:none;box-shadow:none;filter:drop-shadow(0 0 5px var(--pc)) drop-shadow(0 0 12px var(--pc))}
+.pkt.nav::before{content:"";position:absolute;inset:0;background:#fff;clip-path:polygon(50% 0,100% 100%,50% 74%,0 100%)}
 
 /* ---- 顶栏：像仪表盘的抬头 ---- */
 .top{position:relative;border-bottom:0;padding-bottom:14px}
@@ -431,7 +449,7 @@ body{background:transparent}
 .top .right{font-family:var(--hud);letter-spacing:.04em}
 #clock{color:var(--text);font-variant-numeric:tabular-nums}
 
-/* ---- 卡片：深色面板 + 四角的小标记 + 悬浮的光 ---- */
+/* ---- 卡片：深色面板 + 四角的小标记 ---- */
 .card,.row{border-radius:6px;
   background:linear-gradient(165deg,#0e2038 0%,#0a1728 55%,#07111f 100%) padding-box,
     conic-gradient(from var(--a),var(--line) 0 60%,var(--glow) 78%,var(--glow2) 88%,var(--line) 96%) border-box;
@@ -455,7 +473,6 @@ body{background:transparent}
 .card.ceo .head strong,.card.line .head strong,.ceolog .head strong,.usage .head strong{letter-spacing:.14em}
 .big{font-family:var(--hud);font-size:30px;font-weight:600;letter-spacing:.02em;line-height:1.25;color:#fff;font-variant-numeric:tabular-nums;
   text-shadow:0 0 22px color-mix(in srgb,var(--glow) 55%,transparent)}
-.tag{letter-spacing:.1em}
 .row .l1 .ms,.ip,.tm,#verText{font-family:var(--hud);letter-spacing:.03em}
 .ip,code{background:rgba(45,226,255,.08);border:1px solid rgba(45,226,255,.14);color:var(--sub)}
 
@@ -496,23 +513,6 @@ button:hover,.btn:hover{box-shadow:0 0 12px -2px var(--accent)}
 </style>
 </head>
 <body>
-<!-- 背景：一张向远处倾斜的夜间导航地图（纯装饰，不响应点击；由 gen-map 脚本生成） -->
-<div class="navbg" aria-hidden="true">
-  <div class="plane">
-    <div class="grid"></div>
-    <svg viewBox="0 0 1800 3600">
-      <g class="block"><rect x="209" y="3262" width="163" height="131" rx="6"/><rect x="491" y="3237" width="342" height="172" rx="6"/><rect x="1436" y="3276" width="151" height="126" rx="6"/><rect x="254" y="2583" width="107" height="158" rx="6"/><rect x="1429" y="2547" width="102" height="156" rx="6"/><rect x="223" y="2301" width="156" height="126" rx="6"/><rect x="1100" y="2322" width="185" height="129" rx="6"/><rect x="1436" y="2288" width="196" height="154" rx="6"/><rect x="594" y="1984" width="216" height="184" rx="6"/><rect x="1003" y="2038" width="330" height="135" rx="6"/><rect x="1461" y="2007" width="113" height="182" rx="6"/><rect x="257" y="1422" width="98" height="103" rx="6"/><rect x="1035" y="1410" width="184" height="125" rx="6"/><rect x="1428" y="1361" width="100" height="173" rx="6"/><rect x="628" y="1108" width="186" height="148" rx="6"/><rect x="947" y="1139" width="274" height="114" rx="6"/><rect x="234" y="824" width="136" height="132" rx="6"/><rect x="964" y="865" width="257" height="119" rx="6"/><rect x="226" y="503" width="154" height="196" rx="6"/><rect x="572" y="194" width="250" height="191" rx="6"/><rect x="1045" y="207" width="259" height="127" rx="6"/></g>
-      <g class="road minor" stroke-width="10"><path d="M-60 3126 L159 3138 L426 3123 L909 3145 L1396 3119 L1666 3149 L1860 3140"/><path d="M-60 2507 L171 2501 L425 2516 L915 2489 L1361 2479 L1676 2501 L1860 2515"/><path d="M-60 1934 L167 1953 L434 1945 L913 1915 L1362 1932 L1677 1942 L1860 1943"/><path d="M-60 1325 L140 1320 L434 1297 L896 1313 L1380 1323 L1699 1308 L1860 1308"/><path d="M-60 751 L148 752 L433 768 L909 769 L1405 748 L1658 771 L1860 757"/><path d="M-60 98 L166 113 L444 117 L901 122 L1392 86 L1703 112 L1860 103"/><path d="M151 3660 L129 3460 L155 3137 L163 2805 L157 2498 L160 2236 L146 1932 L139 1600 L137 1312 L139 1042 L135 754 L166 435 L130 108 L148 -60"/><path d="M1685 3660 L1699 3460 L1662 3137 L1699 2805 L1693 2498 L1695 2236 L1694 1932 L1671 1600 L1664 1312 L1681 1042 L1696 754 L1660 435 L1670 108 L1675 -60"/></g>
-      <g class="road" stroke-width="22"><path d="M-60 3460 L142 3448 L426 3477 L888 3472 L1388 3479 L1673 3477 L1860 3467"/><path d="M-60 2806 L132 2786 L430 2784 L900 2785 L1372 2825 L1655 2785 L1860 2822"/><path d="M-60 2233 L166 2241 L433 2229 L894 2214 L1368 2239 L1687 2239 L1860 2252"/><path d="M-60 1608 L142 1607 L441 1581 L886 1596 L1403 1609 L1681 1600 L1860 1601"/><path d="M-60 1054 L173 1060 L455 1030 L898 1035 L1355 1062 L1701 1038 L1860 1043"/><path d="M-60 445 L140 419 L431 414 L895 444 L1387 423 L1659 447 L1860 442"/><path d="M421 3660 L438 3460 L417 3137 L448 2805 L435 2498 L424 2236 L434 1932 L448 1600 L425 1312 L426 1042 L445 754 L422 435 L447 108 L440 -60"/><path d="M1372 3660 L1383 3460 L1362 3137 L1370 2805 L1365 2498 L1391 2236 L1383 1932 L1375 1600 L1380 1312 L1379 1042 L1359 754 L1367 435 L1372 108 L1372 -60"/></g>
-      <path class="route-halo" d="M909 3660 L926 3460 L918 3137 L882 2805 L895 2498 L896 2236 L890 1932 L879 1600 L897 1312 L871 1042 L890 754 L923 435 L920 108"/>
-      <path class="route" d="M909 3660 L926 3460 L918 3137 L882 2805 L895 2498 L896 2236 L890 1932 L879 1600 L897 1312 L871 1042 L890 754 L923 435 L920 108"/>
-      <path class="route-flow" d="M909 3660 L926 3460 L918 3137 L882 2805 L895 2498 L896 2236 L890 1932 L879 1600 L897 1312 L871 1042 L890 754 L923 435 L920 108"/>
-      <circle class="ping" cx="920" cy="108" r="26"/><circle class="pin" cx="920" cy="108" r="18"/>
-    </svg>
-  </div>
-  <div class="fog"></div>
-  <div class="horizon"></div>
-</div>
 <div class="wrap" id="wrap">
   <div class="top">
     <h1>调度台</h1>
@@ -757,17 +757,33 @@ async function fly(points, color, ms, target, small) {
     total += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
     dist.push(total);
   }
-  const frames = points.map((p, i) => ({ transform: `translate(${p.x}px,${p.y}px)`, offset: total ? dist[i] / total : i / (points.length - 1) }));
-  const runs = ['', 't1', 't2'].map(async (cls, i) => {
+  const at = (i) => (total ? dist[i] / total : i / (points.length - 1));
+  const frames = points.map((p, i) => ({ transform: `translate(${p.x}px,${p.y}px)`, offset: at(i) }));
+  // 领头的是一个导航箭头：车头朝着行进方向，到拐弯的地方原地转向再继续走。箭头本身画成朝上，所以角度要加 90 度。
+  const navFrames = [];
+  let heading = null;
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i], n = points[i + 1];
+    let next = heading;
+    if (n && (n.x !== p.x || n.y !== p.y)) {
+      next = Math.atan2(n.y - p.y, n.x - p.x) * 180 / Math.PI + 90;
+      if (heading !== null) next = heading + ((next - heading + 540) % 360 - 180);   // 转最小的那个角度，不绕远
+    }
+    if (heading === null) heading = next === null ? 0 : next;
+    navFrames.push({ transform: `translate(${p.x}px,${p.y}px) rotate(${heading}deg)`, offset: at(i) });
+    if (next !== heading && n) { heading = next; navFrames.push({ transform: `translate(${p.x}px,${p.y}px) rotate(${heading}deg)`, offset: Math.min(1, at(i) + 0.03) }); }
+  }
+  const runs = ['nav', 't1', 't2'].map(async (cls, i) => {
     await sleep(i * 70);
     const dot = document.createElement('i');
     dot.className = 'pkt ' + cls;
     dot.style.setProperty('--pc', color);
     // 大小用宽高控制，不能用缩放：缩放会连同位移一起缩，光点就偏离连接线了。
-    dot.style.setProperty('--sz', (small ? 6 : 10) * [1, 0.75, 0.55][i] + 'px');
-    dot.style.transform = frames[0].transform;
+    dot.style.setProperty('--sz', i === 0 ? (small ? 12 : 18) + 'px' : (small ? 6 : 10) * [1, 0.75, 0.55][i] + 'px');
+    const fr = i === 0 ? navFrames : frames;
+    dot.style.transform = fr[0].transform;
     wrap.appendChild(dot);
-    try { await dot.animate(frames, { duration: ms, easing: 'ease-in-out', fill: 'forwards' }).finished; } catch (e) { /* 动画被打断 */ }
+    try { await dot.animate(fr, { duration: ms, easing: 'ease-in-out', fill: 'forwards' }).finished; } catch (e) { /* 动画被打断 */ }
     dot.remove();
   });
   await runs[0];
