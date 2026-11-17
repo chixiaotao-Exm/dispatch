@@ -794,7 +794,7 @@ button:hover,.btn:hover{box-shadow:0 0 12px -2px var(--accent)}
     <div class="card ceo" id="ceoCard">
       <div class="head"><strong style="color:var(--text)">CEO Agent</strong><span class="dot" id="ceoDot"></span></div>
       <div class="sub" id="ceoLine">正在进行第一轮巡视…</div>
-      <div class="voice-row"><button class="voice-open" id="voiceOpen" title="像打电话一样和 CEO Agent 说话：你说完它会自动接话，并用语音回答"><i></i><span id="voiceOpenText">开始通话</span></button><button class="voice-hist" id="voiceHist">通话记录</button><button class="voice-hist" id="voiceAsr">识别设置</button></div>
+      <div class="voice-row"><button class="voice-open" id="voiceOpen" title="像打电话一样和 CEO Agent 说话：你说完它会自动接话，并用语音回答"><i></i><span id="voiceOpenText">开始通话</span></button><button class="voice-hist" id="voiceHist">通话记录</button><button class="voice-hist" id="voiceAsr">识别设置</button><button class="voice-hist" id="ceoModelBtn">模型</button></div>
       <!-- 通话中的界面：像一通电话 -->
       <div class="callui" id="callUI" hidden>
         <div class="call-av" aria-hidden="true"></div>
@@ -2276,6 +2276,42 @@ async function asrDialog(note, bad) {
   });
 }
 $('voiceAsr').addEventListener('click', (e) => { e.stopPropagation(); asrDialog(); });
+// CEO Agent 用哪个模型：主模型和备用模型，从和 Bot 一样的那份列表里选。保存后调度台会重启几秒。
+async function ceoModelDialog(note, bad) {
+  let d;
+  try { const r = await fetch('/api/ceo/models', { cache: 'no-store' }); if (r.status === 401) { location.href = '/login'; return; } d = await r.json(); if (!r.ok) throw new Error(d.error || '取不到'); }
+  catch (e) { return dlgShow({ title: 'CEO Agent 的模型', html: `<p class="dlg-bad">取不到模型列表：${esc(e.message)}</p>`, buttons: [{ label: '关闭', value: false }] }); }
+  const opt = (cur, none) => (none ? `<option value=""${cur ? '' : ' selected'}>不设备用</option>` : '') + d.choices.map((c) => `<option value="${esc(c.id)}"${c.id === cur ? ' selected' : ''}>${esc(showModel(c.id))}　（${esc(c.note)}）</option>`).join('');
+  dlgShow({
+    title: 'CEO Agent 的模型',
+    html: `<form class="asr-form" id="ceoModelForm" autocomplete="off">
+      <p class="dlg-note" style="margin:0 0 12px">现在用的是 <b>${esc(showModel(d.main))}</b>${d.backup ? '，备用 <b>' + esc(showModel(d.backup)) + '</b>' : '，没有备用'}。</p>
+      <label>主模型（接电话、派活、验收结果、审批命令和密码、写简报，都是它）<select name="main">${opt(d.main, false)}</select></label>
+      <label>备用模型（主模型没答复时顶上；主模型同意的命令也由它再看一遍）<select name="backup">${opt(d.backup, true)}</select></label>
+      <p class="dlg-note" style="margin:10px 0 0">CEO 负责审批下属要在你服务器上执行的命令、要用的密码，所以主模型建议选你手上最强、最稳的那个；名字里带 abliterated 的模型不适合当审批的人。</p>
+      <p class="dlg-note" style="margin:6px 0 0">打电话时“边想边说、提前待命”只有主模型是 Claude 订阅的时候才有；选中转站的模型，电话里会等它想完整段再开口。</p>
+      <p class="dlg-note" style="margin:6px 0 0">保存后调度台会自己重启，大约十秒，页面会自动刷新。正在打的电话会断。</p>
+      <p class="asr-msg ${bad ? 'dlg-bad' : ''}" id="ceoModelMsg" role="status">${esc(note || '')}</p>
+      <div class="dlg-btns" style="margin-top:10px"><button type="button" class="dlg-btn" id="ceoModelClose">关闭</button><button type="submit" class="dlg-btn primary">保存</button></div>
+    </form>`,
+  });
+  const f = $('ceoModelForm'), msg = (t, isBad) => { $('ceoModelMsg').textContent = t; $('ceoModelMsg').className = 'asr-msg' + (isBad ? ' dlg-bad' : ''); };
+  $('ceoModelClose').addEventListener('click', () => dlgClose(false));
+  f.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (call.on) return msg('正在通话，先挂断再改模型。', true);
+    try {
+      const r = await fetch('/api/ceo/models', { method: 'POST', headers: { 'X-Ceo-Action': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ main: f.main.value, backup: f.backup.value }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || '保存失败（' + r.status + '）');
+      if (!j.changed) return msg('没有改动。');
+      msg('已保存。调度台正在重启，大约十秒后自动刷新…');
+      const wait = async (n) => { try { const s = await fetch('/api/ceo/models', { cache: 'no-store' }); if (s.ok && (await s.json()).main === f.main.value) return location.reload(); } catch (x) { /* 还没起来 */ } if (n > 0) setTimeout(() => wait(n - 1), 1500); else msg('重启得比预想的久，过一会儿手动刷新页面看看。', true); };
+      setTimeout(() => wait(20), 6000);
+    } catch (err) { msg(err.message, true); }
+  });
+}
+$('ceoModelBtn').addEventListener('click', (e) => { e.stopPropagation(); ceoModelDialog(); });
 $('callLog').addEventListener('click', () => { voiceShow = !voiceShow; voiceKey = ''; voicePolling(); });
 $('callKb').addEventListener('click', () => { voiceShow = true; voiceKey = ''; voicePolling(); $('voiceBox').hidden = false; $('voiceText').focus(); });
 $('voiceHist').addEventListener('click', (e) => { e.stopPropagation(); voiceShow = !voiceShow; voiceKey = ''; voicePolling(); });

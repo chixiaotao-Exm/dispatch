@@ -310,7 +310,11 @@ const LLM = {
   key: process.env.LLM_API_KEY || '',
 };
 const LLM_CFG = cfg.llm || {};
-const CEO_MODEL = LLM_CFG.ceoModel || process.env.LLM_MODEL || '';
+// 主人在页面上给 CEO 选的模型（存在状态目录里）；没选过就用 config.json 里写的。
+const CEO_PICK_FILE = path.join(process.env.STATE_DIRECTORY || os.tmpdir(), 'ceo-model.json');
+let CEO_PICK = {};
+try { CEO_PICK = JSON.parse(fs.readFileSync(CEO_PICK_FILE, 'utf8')) || {}; } catch (e) { /* 没选过 */ }
+const CEO_MODEL = (typeof CEO_PICK.main === 'string' && CEO_PICK.main) || LLM_CFG.ceoModel || process.env.LLM_MODEL || '';
 const LLM_ON = Boolean(LLM.base && LLM.key && CEO_MODEL);
 const BRIEF_MS = (cfg.briefMinutes || 30) * 60000;
 state.brief = { enabled: LLM_ON, model: CEO_MODEL, text: '', at: null, error: '', pending: false };
@@ -357,7 +361,7 @@ function briefInput() {
 }
 
 // 调一次模型，返回它说的话和耗时。
-const CEO_BACKUP = LLM_CFG.ceoBackup || '';                       // CEO 用的模型不可用时的备用模型（走中转站）
+const CEO_BACKUP = typeof CEO_PICK.backup === 'string' ? CEO_PICK.backup : (LLM_CFG.ceoBackup || '');                       // CEO 用的模型不可用时的备用模型（走中转站）
 const AGENT_LLM_URL = (cfg.agent && cfg.agent.llmUrl) || '';      // Claude 系列模型走专用 Agent 容器里的 Claude 订阅
 const viaAgent = (model) => Boolean(AGENT_LLM_URL) && /^claude-/.test(model);
 // 模型偶尔会在回答里混进一段标记（比如 <某某>…</某某>），或者只回一串没有意义的符号。标记去掉；去掉之后什么都不剩，就当这次没答上来。
@@ -423,7 +427,7 @@ async function llmCall(model, system, user, maxTokens) {
   const res = await fetch(LLM.base + '/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + LLM.key },
-    body: JSON.stringify({ model, max_tokens: maxTokens, temperature: 0.3, messages: [{ role: 'system', content: system }, { role: 'user', content: user }] }),
+    body: JSON.stringify({ model: String(model).replace(/^relay:/, ''), max_tokens: maxTokens, temperature: 0.3, messages: [{ role: 'system', content: system }, { role: 'user', content: user }] }),
     signal: AbortSignal.timeout(60000),
   });
   const body = await res.text();
@@ -772,6 +776,33 @@ const server = http.createServer(async (req, res) => {
   }
   if (voice && pathname.startsWith('/api/voice/')) return voice.handle(req, res, pathname);
   if (pathname.startsWith('/api/update/')) return updater.handle(req, res, pathname);
+  // CEO Agent 用哪个模型：列出可选的、保存选择。保存后调度台自己重启几秒让它生效。
+  if (pathname === '/api/ceo/models') {
+    const out = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
+    let choices = [];
+    try {
+      const r = await fetch(((cfg.bots && cfg.bots.url) || 'http://127.0.0.1:4790/bots') + '/api/models', { signal: AbortSignal.timeout(20000) });
+      choices = ((await r.json()).models || []).map((m) => ({ id: m.id, note: m.note, via: m.via }));
+    } catch (e) { /* 取不到列表：至少把现在用的两个列出来 */ }
+    for (const id of [CEO_MODEL, CEO_BACKUP]) if (id && !choices.some((c) => c.id === id)) choices.push({ id, note: '现在用的（不在可选列表里）', via: '' });
+    if (req.method === 'GET') return out(200, { main: CEO_MODEL, backup: CEO_BACKUP, choices, picked: Boolean(CEO_PICK.main), streaming: viaAgent(CEO_MODEL) });
+    if (req.method !== 'POST') return out(405, { error: 'method not allowed' });
+    if (req.headers['x-ceo-action'] !== '1') return out(403, { error: '请求来源不对' });
+    let body = {};
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch (e) { return out(400, { error: '请求格式不对' }); }
+    const main = String(body.main || '').trim(), backup = String(body.backup || '').trim();
+    if (!choices.some((c) => c.id === main)) return out(400, { error: '请选择一个主模型' });
+    if (backup && !choices.some((c) => c.id === backup)) return out(400, { error: '备用模型不在可选列表里' });
+    if (backup && backup === main) return out(400, { error: '备用模型不能和主模型是同一个' });
+    if (main === CEO_MODEL && backup === CEO_BACKUP) return out(200, { ok: true, changed: false });
+    try { fs.writeFileSync(CEO_PICK_FILE + '.tmp', JSON.stringify({ main, backup, at: new Date().toISOString() })); fs.renameSync(CEO_PICK_FILE + '.tmp', CEO_PICK_FILE); }
+    catch (e) { return out(500, { error: '没存上：' + String(e.message || e).slice(0, 100) }); }
+    ceoNote({ verdict: 'dispatch', who: '', what: '主人把 CEO 的模型改成了 ' + showModel(main) + (backup ? '，备用 ' + showModel(backup) : '，不设备用'), reason: '原来是 ' + showModel(CEO_MODEL) + (CEO_BACKUP ? ' / ' + showModel(CEO_BACKUP) : '') });
+    console.log(`[CEO] 模型改为 ${main}${backup ? '，备用 ' + backup : ''}；调度台重启让它生效`);
+    out(200, { ok: true, changed: true, restarting: true });
+    setTimeout(() => process.exit(0), 600);   // systemd 会在几秒后把它重新拉起来
+    return;
+  }
   if (req.url === '/api/status') {
     rollDay();
     state.relay = readRelay();
