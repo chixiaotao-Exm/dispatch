@@ -725,6 +725,15 @@ button:hover,.btn:hover{box-shadow:0 0 12px -2px var(--accent)}
 .ceo .voice-list{max-height:200px}
 .ceo .todo{margin-top:12px}
 .ceo .brief{margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+/* 语音识别设置 */
+.asr-form label{display:block;margin-top:10px;font-size:12px;color:var(--sub);line-height:1.6}
+.asr-form input[type=text],.asr-form input[type=password],.asr-form textarea{display:block;width:100%;margin-top:4px;background:rgba(5,11,22,.8);color:var(--text);border:1px solid var(--line);border-radius:4px;padding:7px 9px;font:inherit;font-size:13px}
+.asr-form textarea{resize:vertical;line-height:1.5}
+.asr-form input:focus,.asr-form textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(45,226,255,.15)}
+.asr-form .asr-radio{display:flex;align-items:center;gap:7px;margin-top:6px;font-size:13px;color:var(--text);cursor:pointer}
+.asr-form [hidden]{display:none}
+.asr-msg{min-height:20px;margin:10px 0 0;font-size:13px;line-height:1.6;color:var(--ok)}
+.dlg:has(.asr-form){width:min(520px,100%);max-height:calc(100vh - 40px);overflow:auto}
 </style>
 </head>
 <body>
@@ -784,7 +793,7 @@ button:hover,.btn:hover{box-shadow:0 0 12px -2px var(--accent)}
     <div class="card ceo" id="ceoCard">
       <div class="head"><strong style="color:var(--text)">CEO Agent</strong><span class="dot" id="ceoDot"></span></div>
       <div class="sub" id="ceoLine">正在进行第一轮巡视…</div>
-      <div class="voice-row"><button class="voice-open" id="voiceOpen" title="像打电话一样和 CEO Agent 说话：你说完它会自动接话，并用语音回答"><i></i><span id="voiceOpenText">开始通话</span></button><button class="voice-hist" id="voiceHist">通话记录</button></div>
+      <div class="voice-row"><button class="voice-open" id="voiceOpen" title="像打电话一样和 CEO Agent 说话：你说完它会自动接话，并用语音回答"><i></i><span id="voiceOpenText">开始通话</span></button><button class="voice-hist" id="voiceHist">通话记录</button><button class="voice-hist" id="voiceAsr">识别设置</button></div>
       <!-- 通话中的界面：像一通电话 -->
       <div class="callui" id="callUI" hidden>
         <div class="call-av" aria-hidden="true"></div>
@@ -1520,7 +1529,9 @@ addEventListener('resize', setDrops);
 // CEO Agent 的简报变长变短时，这一行的高度会变，垂线也要跟着重新量。
 new ResizeObserver(setDrops).observe($('ceoCard'));
 
+let lastStatus = null;   // 最近一次拿到的整页数据（语音识别设置里用它列出网站名）
 function render(d) {
+  lastStatus = d;
   renderInner(d);
   setTrunks();
   setDrops();
@@ -1960,6 +1971,46 @@ function callStop() {
 }
 $('voiceOpen').addEventListener('click', (e) => { e.stopPropagation(); if (call.on) callStop(); else callStart(); });
 $('callHang').addEventListener('click', () => callStop());
+// ---- 语音识别设置：用本机的小模型，还是火山引擎（豆包语音）----
+async function asrDialog(note, bad) {
+  let d;
+  try { d = await voiceApi('asr'); } catch (e) { return dlgShow({ title: '语音识别设置', html: `<p class="dlg-bad">${esc(e.message)}</p>`, buttons: [{ label: '关闭', value: false }] }); }
+  const sites = (lastStatus && lastStatus.sites || []).map((x) => x.name).filter(Boolean);
+  const words = d.hotwords.length ? d.hotwords : ['恶小梦', '调度台', 'CEO Agent', '专用 Agent', 'Bot', '中转站', '破甲线路', ...sites];
+  const state = d.enabled ? (d.lastError ? `<span class="dlg-bad" style="font-size:13px">上一次没成，退回了本机模型：${esc(d.lastError)}</span>` : '<span style="color:var(--ok)">正在用豆包语音识别</span>') : '<span style="color:var(--sub)">正在用本机的小模型</span>';
+  dlgShow({
+    title: '语音识别设置',
+    html: `<form class="asr-form" id="asrForm" autocomplete="off">
+      <p class="dlg-note" style="margin:0 0 12px">${state}${d.enabled && !d.wordsOk ? '<br>自定义词这个接口没有接受，目前没有生效。' : ''}</p>
+      <p class="dlg-note" style="margin:0 0 12px">怎么拿密钥：登录火山引擎控制台 → 豆包语音 → 开通“大模型录音文件极速版识别” → 在“API Key 管理”里新建一个，复制到下面。密钥只存在你的服务器上，不会显示出来。</p>
+      <label class="asr-radio"><input type="radio" name="mode" value="new" ${d.mode === 'new' ? 'checked' : ''}>新版控制台（只有一个 API Key）</label>
+      <label class="asr-radio"><input type="radio" name="mode" value="old" ${d.mode === 'old' ? 'checked' : ''}>旧版控制台（App ID 和 Access Token）</label>
+      <div data-mode="new"><label>API Key<input type="password" name="apiKey" autocomplete="new-password" placeholder="${d.mode === 'new' && d.hasKey ? '已经填过（' + esc(d.keyTail) + '），不改就留空' : '粘贴到这里'}"></label></div>
+      <div data-mode="old"><label>App ID<input type="text" name="appId" autocomplete="off" value="${esc(d.appId || '')}" placeholder="一串数字"></label>
+        <label>Access Token<input type="password" name="accessToken" autocomplete="new-password" placeholder="${d.mode === 'old' && d.hasKey ? '已经填过（' + esc(d.keyTail) + '），不改就留空' : '粘贴到这里'}"></label></div>
+      <label>自定义词（每行一个：你常说的名字、网站名、英文词，识别时会优先往这些词上靠）<textarea name="hotwords" rows="6">${esc(words.join(String.fromCharCode(10)))}</textarea></label>
+      <label class="asr-radio"><input type="checkbox" name="enabled" ${d.enabled || !d.hasKey ? 'checked' : ''}>用豆包语音识别（不勾就用本机的小模型）</label>
+      <p class="asr-msg ${bad ? 'dlg-bad' : ''}" id="asrMsg" role="status">${esc(note || '')}</p>
+      <div class="dlg-btns" style="margin-top:10px"><button type="button" class="dlg-btn" id="asrClose">关闭</button><button type="button" class="dlg-btn" id="asrTest">保存并测试</button><button type="submit" class="dlg-btn primary">保存</button></div>
+    </form>`,
+  });
+  const f = $('asrForm');
+  const sync = () => { for (const el of f.querySelectorAll('[data-mode]')) el.hidden = el.dataset.mode !== f.mode.value; };
+  sync(); f.addEventListener('change', sync);
+  const save = async () => voiceApi('asr/save', { body: JSON.stringify({ mode: f.mode.value, apiKey: f.apiKey.value, appId: f.appId.value, accessToken: f.accessToken.value, hotwords: f.hotwords.value, enabled: f.enabled.checked }) });
+  const msg = (t, isBad) => { $('asrMsg').textContent = t; $('asrMsg').className = 'asr-msg' + (isBad ? ' dlg-bad' : ''); };
+  $('asrClose').addEventListener('click', () => dlgClose(false));
+  f.addEventListener('submit', async (e) => { e.preventDefault(); try { const r = await save(); asrDialog(r.enabled ? '已保存，之后的通话用豆包语音识别。' : r.hasKey ? '已保存，目前用本机的小模型。' : '已保存。还没有填密钥，所以用的还是本机的小模型。'); } catch (err) { msg(err.message, true); } });
+  $('asrTest').addEventListener('click', async () => {
+    try {
+      msg('正在保存并测试，大约几秒…');
+      await save();
+      const r = await voiceApi('asr/test', { body: '{}' });
+      asrDialog(`测试通过。让它听的是“${r.said}”，它认出来的是“${r.text}”。` + (r.wordsOk ? '' : '（自定义词这个接口没有接受，目前没有生效）'));
+    } catch (err) { asrDialog('测试没通过：' + err.message, true); }
+  });
+}
+$('voiceAsr').addEventListener('click', (e) => { e.stopPropagation(); asrDialog(); });
 $('callLog').addEventListener('click', () => { voiceShow = !voiceShow; voiceKey = ''; voicePolling(); });
 $('callKb').addEventListener('click', () => { voiceShow = true; voiceKey = ''; voicePolling(); $('voiceBox').hidden = false; $('voiceText').focus(); });
 $('voiceHist').addEventListener('click', (e) => { e.stopPropagation(); voiceShow = !voiceShow; voiceKey = ''; voicePolling(); });

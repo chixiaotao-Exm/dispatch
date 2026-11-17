@@ -2,6 +2,7 @@
 // CEO Agent 决定是自己回答、交给专用 Agent，还是交给某个 Bot；交出去的事做完后把结果带回这段对话。
 // 这里只负责"派活"：专用 Agent 要动服务器时照旧走审批，这里不替任何人批准任何事。
 const fs = require('fs');
+const crypto = require('crypto');
 
 module.exports = function (ctx) {
   const { ceoCall, state, note, botsUrl, tasksUrl, sttUrl, file } = ctx;
@@ -11,6 +12,40 @@ module.exports = function (ctx) {
   let busy = false;
   const save = () => { try { fs.writeFileSync(file + '.tmp', JSON.stringify(log)); fs.renameSync(file + '.tmp', file); } catch (e) { /* 存不了不影响使用 */ } };
   const push = (m) => { const it = { id: ++seq, at: Date.now(), ...m }; log.push(it); if (log.length > 80) log = log.slice(-80); save(); return it; };
+  // ---- 语音识别用哪一家 ----
+  // 默认用本机的小模型。主人在页面上填了火山引擎（豆包语音）的密钥并打开开关后，就改用豆包的大模型来识别；
+  // 豆包那边出任何问题（密钥不对、欠费、超时），这一句自动退回本机模型，电话不会断。密钥只存在这个文件里，不写进日志，也不发回页面。
+  let asr = { enabled: false, mode: 'new', apiKey: '', appId: '', accessToken: '', hotwords: [] };
+  try { asr = { ...asr, ...JSON.parse(fs.readFileSync(ctx.asrFile, 'utf8')) }; } catch (e) { /* 还没设置过 */ }
+  const asrState = { lastOk: 0, lastError: '', lastErrorAt: 0, wordsOk: true };
+  const asrHasKey = () => (asr.mode === 'new' ? Boolean(asr.apiKey) : Boolean(asr.appId && asr.accessToken));
+  const asrReady = () => Boolean(asr.enabled && ctx.asrFile && asrHasKey());
+  const saveAsr = () => { fs.writeFileSync(ctx.asrFile + '.tmp', JSON.stringify(asr), { mode: 0o600 }); fs.renameSync(ctx.asrFile + '.tmp', ctx.asrFile); };
+  const tail = (v) => (v ? '…' + String(v).slice(-4) : '');
+  const asrView = () => ({ enabled: asr.enabled, mode: asr.mode, hasKey: asrHasKey(), keyTail: asr.mode === 'new' ? tail(asr.apiKey) : tail(asr.accessToken), appId: asr.mode === 'old' ? asr.appId : '', hotwords: asr.hotwords, ...asrState });
+  // 火山引擎"大模型录音文件极速版识别"：一次请求直接返回文字。自定义词随请求一起带过去。
+  async function doubao(audio, format, useWords = true) {
+    const request = { model_name: 'bigmodel', enable_itn: true, enable_punc: true };
+    if (useWords && asr.hotwords.length) request.context = JSON.stringify({ hotwords: asr.hotwords.map((word) => ({ word })) });
+    const res = await fetch('https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Resource-Id': 'volc.bigasr.auc_turbo', 'X-Api-Request-Id': crypto.randomUUID(), 'X-Api-Sequence': '-1',
+        ...(asr.mode === 'new' ? { 'X-Api-Key': asr.apiKey } : { 'X-Api-App-Key': asr.appId, 'X-Api-Access-Key': asr.accessToken }) },
+      body: JSON.stringify({ user: { uid: 'dispatch' }, audio: { data: audio.toString('base64'), format }, request }),
+      signal: AbortSignal.timeout(20000),
+    });
+    const code = res.headers.get('x-api-status-code') || '', msg = res.headers.get('x-api-message') || '';
+    const j = await res.json().catch(() => ({}));
+    if (code === '20000003' || code === '45000002') return '';   // 静音、空音频：就是没听到话
+    if (code !== '20000000') {
+      // 带着自定义词被说"参数无效"：可能是这个接口不收自定义词，去掉再试一次。
+      if (useWords && request.context && code === '45000001') { asrState.wordsOk = false; return doubao(audio, format, false); }
+      const why = res.status === 401 || res.status === 403 ? '密钥不对，或者这个密钥没有开通"录音文件极速版识别"' : code === '55000031' ? '豆包那边太忙' : (msg || j.message || JSON.stringify(j)).slice(0, 100);
+      throw new Error(`豆包返回 ${code || res.status}：${why}`);
+    }
+    if (useWords && request.context) asrState.wordsOk = true;
+    return String((j.result && j.result.text) || '').trim();
+  }
   const clip = (s, n) => { s = String(s || ''); return s.length > n ? s.slice(0, n) + '…（后面还有，去对应的页面看全文）' : s; };
 
   async function call(url, body, header, timeout) {
@@ -155,11 +190,22 @@ hangup：只有正在通话时才有用。主人表示这通电话可以结束�
     try {
       const route = pathname.slice('/api/voice'.length);
       if (req.method === 'GET' && route === '/log') return json(res, 200, { items: log.slice(-60), busy });
+      if (req.method === 'GET' && route === '/asr') return json(res, 200, asrView());
       if (req.method !== 'POST') return json(res, 405, { error: 'method not allowed' });
       if (req.headers['x-voice-action'] !== '1') return json(res, 403, { error: '请求来源不对' });
       if (route === '/stt') {
         const audio = await readRaw(req, 12 * 1024 * 1024);
         if (audio.length < 800) return json(res, 400, { error: '录音是空的' });
+        if (asrReady()) {
+          try {
+            const text = await doubao(audio, 'wav');
+            asrState.lastOk = Date.now(); asrState.lastError = '';
+            return json(res, 200, { text, engine: 'doubao' });
+          } catch (e) {
+            asrState.lastError = String(e.message || e).slice(0, 200); asrState.lastErrorAt = Date.now();
+            console.log('[语音识别] 豆包这一句没成，退回本机模型：' + asrState.lastError);
+          }
+        }
         let r;
         try { r = await fetch(sttUrl, { method: 'POST', body: audio, signal: AbortSignal.timeout(90000) }); }
         catch (e) { return json(res, 502, { error: '语音识别服务没有回应' }); }
@@ -176,6 +222,36 @@ hangup：只有正在通话时才有用。主人表示这通电话可以结束�
         push({ role: 'me', text });
         handleSay(text, body.call === true);   // 不等它：页面会自己来取结果
         return json(res, 200, { ok: true });
+      }
+      // 语音识别的设置：保存密钥和自定义词。密钥栏留空表示不改原来的。
+      if (route === '/asr/save') {
+        const body = JSON.parse((await readRaw(req, 60000)).toString('utf8') || '{}');
+        const str = (v) => String(v || '').trim().slice(0, 300);
+        asr.mode = body.mode === 'old' ? 'old' : 'new';
+        if (str(body.apiKey)) asr.apiKey = str(body.apiKey);
+        if (str(body.appId)) asr.appId = str(body.appId);
+        if (str(body.accessToken)) asr.accessToken = str(body.accessToken);
+        asr.hotwords = [...new Set(String(body.hotwords || '').split(/[\n,，、]+/).map((w) => w.trim().slice(0, 30)).filter(Boolean))].slice(0, 300);
+        asr.enabled = Boolean(body.enabled) && asrHasKey();
+        saveAsr();
+        asrState.lastError = '';
+        console.log(`[语音识别] 设置已保存：${asr.enabled ? '用豆包' : '用本机模型'}，自定义词 ${asr.hotwords.length} 个`);
+        return json(res, 200, asrView());
+      }
+      // 试一下：让本机先合成一句话，再交给豆包识别，看能不能认出来。
+      if (route === '/asr/test') {
+        if (!asrHasKey()) return json(res, 400, { error: '还没有填密钥' });
+        try {
+          const said = '你好，这是调度台的语音识别测试。';
+          const t = await fetch(sttUrl + 'tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: said }), signal: AbortSignal.timeout(30000) });
+          if (!t.ok) return json(res, 502, { error: '本机合成不了测试用的语音' });
+          const text = await doubao(Buffer.from(await t.arrayBuffer()), /mpeg/.test(t.headers.get('content-type') || '') ? 'mp3' : 'wav');
+          asrState.lastOk = Date.now(); asrState.lastError = '';
+          return json(res, 200, { ok: true, said, text, wordsOk: asrState.wordsOk });
+        } catch (e) {
+          asrState.lastError = String(e.message || e).slice(0, 200); asrState.lastErrorAt = Date.now();
+          return json(res, 502, { error: asrState.lastError });
+        }
       }
       // 电话一接通，CEO Agent 先开口：问好，顺带说一句现在的情况。这句话是按当前状态直接拼出来的，不用等模型，所以一接通就能说。
       if (route === '/hello') {
