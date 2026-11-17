@@ -1773,7 +1773,7 @@ function callFeed(items) {
   if (!call.on) return;
   for (const m of items) {
     if (call.spoken.has(m.id)) continue;
-    if (m.role === 'ceo') { call.spoken.add(m.id); call.queue.push(m.text); }
+    if (m.role === 'ceo') { call.spoken.add(m.id); call.queue.push(m.hangup ? { text: m.text, hang: true } : m.text); }   // hang：这一句说完就挂电话
     else if (m.role === 'result') { if (m.speak) { call.spoken.add(m.id); call.queue.push(m.speak); } }
     else call.spoken.add(m.id);
   }
@@ -1785,9 +1785,10 @@ function callPump() {
   if (call.state === 'think' && !voiceBusy && !call.sending) callListen();
 }
 function callListen() { call.pre = []; call.rec = []; call.speaking = false; call.loudMs = 0; call.muteUntil = Date.now() + 350; voiceState('listen'); }
-async function callSpeak(text) {
+async function callSpeak(item) {
+  const hang = Boolean(item && item.hang), text = hang ? item.text : item;
   voiceState('speak');
-  const done = () => { call.audio = null; if (!call.on) return; callListen(); callPump(); };
+  const done = () => { call.audio = null; if (!call.on) return; if (hang) return callStop(); callListen(); callPump(); };
   try {
     const blob = await voiceApi('tts', { body: JSON.stringify({ text }), raw: true });
     if (!call.on) return;

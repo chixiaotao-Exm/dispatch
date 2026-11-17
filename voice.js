@@ -24,7 +24,7 @@ module.exports = function (ctx) {
 
   const PROMPT = `你是 CEO Agent。主人${ctx.ownerName ? '（' + ctx.ownerName + '）' : ''}正在调度台上对你说话。文字多半是语音识别出来的，可能有同音错字，按意思理解；实在听不明白就问他，不要猜着派活。
 你的工作是决定这句话由谁来办。只输出一个 JSON，不要输出别的：
-{"action":"reply 或 agent 或 bot","bot":"Bot 的名字，action 是 bot 时才填","followUp":false,"task":"交给对方的任务说明","say":"对主人说的一句话"}
+{"action":"reply 或 agent 或 bot","bot":"Bot 的名字，action 是 bot 时才填","followUp":false,"hangup":false,"task":"交给对方的任务说明","say":"对主人说的一句话"}
 
 三种做法：
 - reply：你自己直接回答。适用于：问现在的运行情况（只用下面给你的监控数据回答，不要编造）、闲聊、问你能做什么、或者你需要先问清楚再派活。这时 say 就是你的回答，最多 200 字，task 留空。
@@ -35,6 +35,7 @@ task 怎么写：把主人的要求完整、清楚地转述成一段任务说明
 followUp：主人这句话是在接着上一件已经交给专用 Agent 的事往下说（修改、补充、追问）时填 true，这样会在原来那个任务的基础上继续；否则填 false。
 action 是 agent 或 bot 时，say 用一句话告诉主人交给了谁、去做什么，不超过 60 字。
 主人要求的事明显会造成破坏（删数据、关停线上业务之类）时先不要派出去，用 reply 向他确认一遍。
+hangup：只有正在通话时才有用。主人表示这通电话可以结束了（比如"挂了吧""你挂电话吧""先这样""没别的事了""再见""晚安"），就填 true，say 里说一句简短的道别——你说完这句，电话会自动挂断。主人还有事要说、或者只是让你去办一件事，填 false。你自己不要主动提出挂电话。
 不要用 Markdown。
 如果给你的数据里"正在通话"是 true：主人正在和你打语音电话，say 会被直接念给他听。这时 say 要像打电话一样口语化、简短（一般不超过 50 字），不要出现网址、代码、符号和列表，数字和英文名照常说。`;
   const SPEAK_PROMPT = '你是 CEO Agent，正在和主人打语音电话。下属把一件事的结果交回来了，你要把结果口头转告主人。只输出要说的话本身：口语化，不超过 80 字，先说谁做完了（或没做成），再说最要紧的结论；不要念网址、代码、符号和列表，有文件或链接就说"详细的在通话记录里"。';
@@ -52,7 +53,7 @@ action 是 agent 或 bot 时，say 用一句话告诉主人交给了谁、去做
       const j = JSON.parse(String(text).slice(String(text).indexOf('{'), String(text).lastIndexOf('}') + 1));
       const action = ['reply', 'agent', 'bot'].includes(j.action) ? j.action : null;
       if (!action) return null;
-      return { action, bot: String(j.bot || '').trim(), followUp: j.followUp === true, task: String(j.task || '').trim().slice(0, 6000), say: String(j.say || '').trim().slice(0, 600) };
+      return { action, bot: String(j.bot || '').trim(), followUp: j.followUp === true, hangup: j.hangup === true, task: String(j.task || '').trim().slice(0, 6000), say: String(j.say || '').trim().slice(0, 600) };
     } catch (e) { return null; }
   }
 
@@ -76,22 +77,25 @@ action 是 agent 或 bot 时，say 用一句话告诉主人交给了谁、去做
 
   async function handleSay(text, inCall) {
     busy = true;
+    let hang = false;   // 主人说可以挂电话了：这一句回答说完，页面就把电话挂断
+    const say = (m) => push(hang ? { ...m, hangup: true } : m);
     try {
       const d = await decide(text, inCall);
+      hang = Boolean(inCall && d.hangup);
       if (d.action === 'bot') {
         const want = d.bot.toLowerCase();
         const bot = d.botList.find((b) => b.name.toLowerCase() === want) || (want && d.botList.find((b) => b.name.toLowerCase().includes(want)));
         if (!bot) d.action = 'agent';   // 没有这个 Bot：改交给专用 Agent
-        else if (bot.running) return push({ role: 'ceo', text: '这件事适合交给「' + bot.name + '」，但它正在忙别的。等它做完再说一遍，或者告诉我换一个人做。' });
+        else if (bot.running) return say({ role: 'ceo', text: '这件事适合交给「' + bot.name + '」，但它正在忙别的。等它做完再说一遍，或者告诉我换一个人做。' });
         else {
           const before = (await bots('/api/chat?bot=' + bot.id + '&since=0')).messages.reduce((m, x) => Math.max(m, x.id), 0);
           await bots('/api/send', { bot: bot.id, text: '【主人通过 CEO Agent 交代的事】\n' + (d.task || text) });
           note({ verdict: 'dispatch', who: '', what: '主人口头交代的事，交给了 Bot「' + bot.name + '」', reason: (d.task || text).slice(0, 120) });
-          return push({ role: 'ceo', text: d.say || '已经交给「' + bot.name + '」。', to: 'Bot「' + bot.name + '」', task: d.task || text, ref: { kind: 'bot', id: bot.id, name: bot.name, before }, state: 'running' });
+          return say({ role: 'ceo', text: d.say || '已经交给「' + bot.name + '」。', to: 'Bot「' + bot.name + '」', task: d.task || text, ref: { kind: 'bot', id: bot.id, name: bot.name, before }, state: 'running' });
         }
       }
       if (d.action === 'agent') {
-        if (!tasksUrl) return push({ role: 'ceo', text: '专用 Agent 没有接入，这件事派不出去。' });
+        if (!tasksUrl) return say({ role: 'ceo', text: '专用 Agent 没有接入，这件事派不出去。' });
         const prompt = (d.task || text).slice(0, 7900);
         const prev = d.followUp ? log.slice().reverse().find((m) => m.ref && m.ref.kind === 'agent' && m.state !== 'running') : null;
         let made = null;
@@ -99,11 +103,11 @@ action 是 agent 或 bot 时，say 用一句话告诉主人交给了谁、去做
         const continued = Boolean(made);
         if (!made) made = await tasks('/api/create', { prompt });
         note({ verdict: 'dispatch', who: '', what: '主人口头交代的事，交给了专用 Agent' + (continued ? '（接着上一件继续）' : ''), reason: prompt.slice(0, 120) });
-        return push({ role: 'ceo', text: d.say || '已经交给专用 Agent。', to: '专用 Agent', task: prompt, ref: { kind: 'agent', id: made.id }, state: 'running' });
+        return say({ role: 'ceo', text: d.say || '已经交给专用 Agent。', to: '专用 Agent', task: prompt, ref: { kind: 'agent', id: made.id }, state: 'running' });
       }
-      return push({ role: 'ceo', text: d.say || '我没有想好怎么回答，换个说法再说一遍。' });
+      return say({ role: 'ceo', text: d.say || '我没有想好怎么回答，换个说法再说一遍。' });
     } catch (e) {
-      return push({ role: 'ceo', text: '这句话没有处理成：' + String(e.message || e).slice(0, 160), failed: true });
+      return say({ role: 'ceo', text: '这句话没有处理成：' + String(e.message || e).slice(0, 160), failed: true });
     } finally { busy = false; }
   }
 
