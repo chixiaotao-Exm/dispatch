@@ -21,9 +21,10 @@ keep() { # 某个部件退出了就自动再拉起来
 keep xvfb Xvfb :1 -screen 0 1440x900x24 -nolisten tcp
 for i in $(seq 1 50); do xdpyinfo -display :1 >/dev/null 2>&1 && break; sleep 0.2; done
 xsetroot -solid "#1b2233"
+xset b off   # 关掉这台电脑的响铃，免得传到正在看远程桌面的人那里
 keep openbox openbox
 keep tint2 tint2
-keep x11vnc x11vnc -display :1 -forever -shared -nopw -rfbport 5900 -localhost -quiet -noxdamage
+keep x11vnc x11vnc -display :1 -forever -shared -nopw -rfbport 5900 -localhost -quiet -noxdamage -nobell
 keep novnc websockify --web /usr/share/novnc 6080 localhost:5900
 # 浏览器：开着调试端口，工具服务通过它来操作；用户在远程桌面里看到的就是这个窗口。
 # 容器本身就是隔离边界，所以关掉了浏览器自带的沙箱（它在容器里起不来）。

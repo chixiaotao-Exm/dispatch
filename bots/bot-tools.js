@@ -132,7 +132,7 @@ async function webFetch(url) {
 // ---------------- 工具 ----------------
 async function shot(file) { // 截整个桌面
   const png = '/tmp/desk-' + Date.now() + '.png';
-  await run('scrot', ['-o', png]);
+  await run('scrot', ['-z', '-o', png]);   // -z：截屏不要响铃，否则每截一次，正在看远程桌面的人就听到一声叮
   const r = await run('convert', [png, '-quality', '62', 'jpg:' + file]);
   fs.rm(png, { force: true }, () => {});
   if (r.err) throw fail('截图失败');

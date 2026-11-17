@@ -736,13 +736,6 @@ const server = http.createServer(async (req, res) => {
   }
   if (voice && pathname.startsWith('/api/voice/')) return voice.handle(req, res, pathname);
   if (pathname.startsWith('/api/update/')) return updater.handle(req, res, pathname);
-  // 临时的声音诊断：页面里任何地方一播放声音，就把"哪个面板、播的是什么"报到这里记进日志，用来找出那个"叮"是谁发的。
-  if (pathname === '/api/diag/sound' && req.method === 'POST') {
-    const body = await readBody(req);
-    console.log('[声音诊断] ' + String(body).split(String.fromCharCode(10)).join(' ').split(String.fromCharCode(13)).join(' ').slice(0, 600));
-    res.writeHead(204);
-    return res.end();
-  }
   if (req.url === '/api/status') {
     rollDay();
     state.relay = readRelay();
