@@ -1780,7 +1780,7 @@ function paintVoice(d) {
   voiceLook(items);
   callFeed(items);
   $('voiceBox').hidden = !voiceShow;
-  if (call.on && !call.st) {
+  if (call.on && !call.st && !call.rt) {
     const last = [...items].reverse().find((m) => m.id > call.startId && (m.role === 'me' || m.role === 'ceo' || (m.role === 'result' && m.speak)));
     $('callCap').textContent = !last ? '说完停一下，我就会接话。说“挂断”可以结束通话。' : last.role === 'me' ? '你：' + last.text : last.role === 'result' ? last.speak : last.text;
     $('callCap').className = 'call-cap' + (last && last.role === 'me' ? ' me' : '');
@@ -1834,7 +1834,7 @@ async function voiceSend(text) {
 
 // 通话中：新出现的回答和结果要念出来。开始通话之前就有的记录不念。
 function callFeed(items) {
-  if (!call.on) return;
+  if (!call.on || call.rt) return;
   for (const m of items) {
     if (call.spoken.has(m.id)) continue;
     if (m.role === 'ceo') {
@@ -2001,6 +2001,13 @@ function callFrame(input, rate) {
   let sum = 0;
   for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
   const rms = Math.sqrt(sum / input.length);
+  if (call.rt) {
+    const st = rate / 16000, o16 = new Int16Array(Math.floor(input.length / st));
+    for (let i = 0; i < o16.length; i++) { const a = Math.floor(i * st), b = Math.max(a + 1, Math.floor((i + 1) * st)); let v = 0; for (let k = a; k < b; k++) v += input[k]; o16[i] = Math.max(-1, Math.min(1, v / (b - a))) * 32767; }
+    rt.buf.push(o16);
+    if (call.state === 'listen') $('callWave').style.setProperty('--lv', Math.min(1, rms * 9).toFixed(2));
+    return;
+  }
   if (call.state !== 'listen' && call.state !== 'speak') return;
   const step = rate / 16000, out = new Float32Array(Math.floor(input.length / step));
   for (let i = 0; i < out.length; i++) { const a = Math.floor(i * step), b = Math.max(a + 1, Math.floor((i + 1) * step)); let s = 0; for (let k = a; k < b; k++) s += input[k]; out[i] = s / (b - a); }
@@ -2038,6 +2045,88 @@ function callFrame(input, rate) {
     callUtterance(frames);
   }
 }
+// ---- 端到端通话（试用）----
+// 麦克风的声音每 0.1 秒送一次给服务器（服务器转给豆包的实时语音模型）；服务器那边有一条一直开着的回应，
+// 她的声音和各种事件（听到了什么、她说了什么、该停、该挂）一帧一帧地送回来。声音拿到就排队播放；你一开口，正在播的立刻停掉。
+const rt = { sid: '', buf: [], timer: null, abort: null, next: 0, nodes: new Set(), sending: Promise.resolve() };
+async function rtStart() {
+  const r = await voiceApi('rt/start', { body: JSON.stringify({ hour: new Date().getHours() }) });
+  if (!call.on) { voiceApi('rt/stop?sid=' + r.sid, { body: '{}' }).catch(() => {}); throw new Error('已经挂断'); }
+  Object.assign(rt, { sid: r.sid, buf: [], next: 0, abort: new AbortController(), sending: Promise.resolve() });
+  call.rt = true;
+  rt.timer = setInterval(rtFlush, 100);
+  rtListen(r.sid);
+  voiceState('speak');
+}
+function rtFlush() {
+  if (!call.rt || !rt.buf.length) return;
+  const parts = rt.buf; rt.buf = [];
+  const pcm = new Int16Array(parts.reduce((a, p) => a + p.length, 0));
+  let o = 0; for (const p of parts) { pcm.set(p, o); o += p.length; }
+  const sid = rt.sid;
+  // 一段一段按顺序送，前一段没送完就排在后面，顺序不能乱
+  rt.sending = rt.sending.then(() => voiceApi('rt/up?sid=' + sid, { body: pcm.buffer, type: 'application/octet-stream' })).catch((e) => { if (call.rt && rt.sid === sid && /已经结束/.test(e.message)) rtEnded('通话被服务器收掉了'); });
+}
+async function rtListen(sid) {
+  let buf = new Uint8Array(0), odd = null;
+  try {
+    const res = await fetch('/api/voice/rt/down?sid=' + sid, { cache: 'no-store', signal: rt.abort.signal });
+    if (!res.ok || !res.body) throw new Error('下行没接上');
+    const reader = res.body.getReader();
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const merged = new Uint8Array(buf.length + value.length); merged.set(buf); merged.set(value, buf.length); buf = merged;
+      for (;;) {
+        if (buf.length < 5) break;
+        const n = ((buf[1] << 24) | (buf[2] << 16) | (buf[3] << 8) | buf[4]) >>> 0;
+        if (buf.length < 5 + n) break;
+        const type = buf[0], body = buf.slice(5, 5 + n); buf = buf.slice(5 + n);
+        if (!call.rt || rt.sid !== sid) return;
+        if (type === 1) {
+          let bytes = body;
+          if (odd) { const m = new Uint8Array(1 + bytes.length); m[0] = odd[0]; m.set(bytes, 1); bytes = m; odd = null; }   // 上一帧多出半个采样：接上
+          if (bytes.length % 2) { odd = bytes.slice(bytes.length - 1); bytes = bytes.slice(0, bytes.length - 1); }
+          rtPlay(new Int16Array(bytes.buffer, bytes.byteOffset, bytes.length / 2));
+        } else if (type === 2) { try { rtEvent(JSON.parse(new TextDecoder().decode(body))); } catch (e) { /* 这一帧没看懂，跳过 */ } }
+      }
+    }
+    if (call.rt && rt.sid === sid) rtEnded('通话断开了');
+  } catch (e) { if (call.rt && rt.sid === sid) rtEnded('通话断开了'); }
+}
+function rtPlay(pcm) {
+  if (!call.ctx || !pcm.length) return;
+  const b = call.ctx.createBuffer(1, pcm.length, 24000), ch = b.getChannelData(0);
+  for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
+  const src = call.ctx.createBufferSource();
+  src.buffer = b; src.connect(call.ctx.destination);
+  const at = Math.max(call.ctx.currentTime + 0.06, rt.next);   // 留一点点余量，声音才不会一顿一顿
+  rt.next = at + b.duration;
+  rt.nodes.add(src);
+  src.onended = () => { rt.nodes.delete(src); if (call.rt && !rt.nodes.size && call.state === 'speak') voiceState('listen'); };
+  src.start(at);
+  if (call.state !== 'speak') voiceState('speak');
+}
+function rtHush() { for (const n of rt.nodes) { try { n.onended = null; n.stop(); } catch (e) { /* 已经停了 */ } } rt.nodes.clear(); rt.next = 0; }
+function rtEvent(e) {
+  const cap = (text, me) => { $('callCap').textContent = (me ? '你：' : '') + text; $('callCap').className = 'call-cap' + (me ? ' me' : ''); };
+  if (e.t === 'interrupt') { rtHush(); voiceState('listen', '听到你说话了，请继续…'); }
+  else if (e.t === 'asr') cap(e.text, true);
+  else if (e.t === 'heard') { cap(e.text, true); if (!rt.nodes.size) voiceState('think'); try { fromBoss(); } catch (x) { /* 动画画不出来不要紧 */ } voiceLoad(); }
+  else if (e.t === 'say') { cap(e.text, false); voiceLoad(); }
+  else if (e.t === 'ttsend') { if (!rt.nodes.size && call.state !== 'listen') voiceState('listen'); }
+  else if (e.t === 'hangup') { const wait = Math.max(0, (rt.next - (call.ctx ? call.ctx.currentTime : 0)) * 1000) + 300; setTimeout(() => { if (call.rt) callStop(); }, wait); }   // 等道别的话播完再挂
+  else if (e.t === 'end') rtEnded(e.why || '通话结束了');
+}
+function rtEnded(why) { if (!call.rt) return; callStop(); voiceTip('端到端通话结束：' + why + '。可以再点一次“开始通话”。', true); }
+function rtStop() {
+  if (!call.rt) return;
+  call.rt = false;
+  clearInterval(rt.timer); rtHush();
+  try { rt.abort.abort(); } catch (e) { /* 已经断开 */ }
+  voiceApi('rt/stop?sid=' + rt.sid, { body: '{}' }).catch(() => {});
+  rt.buf = [];
+}
 async function callStart() {
   if (!navigator.mediaDevices || !(window.AudioContext || window.webkitAudioContext)) return voiceTip('这个浏览器不支持通话，可以点"通话记录"打字', true);
   let stream;
@@ -2048,13 +2137,19 @@ async function callStart() {
   quiet.gain.value = 0;
   node.onaudioprocess = (e) => callFrame(e.inputBuffer.getChannelData(0), ctx.sampleRate);
   ctx.createMediaStreamSource(stream).connect(node); node.connect(quiet); quiet.connect(ctx.destination);
-  Object.assign(call, { on: true, ctx, stream, node, queue: [], spoken: new Set(), noise: 0.006, live: 0, skip: 0, part: null, hangAfter: false });
+  Object.assign(call, { on: true, ctx, stream, mic: stream, node, queue: [], spoken: new Set(), noise: 0.006, live: 0, skip: 0, part: null, hangAfter: false });
   try { for (const m of (await voiceApi('log')).items || []) call.spoken.add(m.id); } catch (e) { /* 取不到就算了 */ }
-  try { const a = await voiceApi('asr'); call.stream = Boolean(a.enabled && a.stream); } catch (e) { call.stream = false; }
+  let asrSet = {};
+  try { asrSet = await voiceApi('asr'); } catch (e) { /* 取不到就按原来的方式 */ }
+  call.stream = Boolean(asrSet.enabled && asrSet.stream);
   call.startId = Math.max(0, ...call.spoken); call.t0 = Date.now(); clearInterval(call.clock); call.clock = setInterval(callClock, 1000); callClock();
   $('voiceOpen').classList.add('on'); $('voiceOpenText').textContent = '挂断'; voiceTip('');
   // 电话接通后由 CEO Agent 先开口：让它问好并说一句现在的情况，它说完再轮到你。请不到这句开场白时，就直接开始听。
   voiceState('think', '正在接通…');
+  if (asrSet.rt) {
+    try { await rtStart(); voiceKey = ''; voicePolling(); return; }
+    catch (e) { if (!call.on) return; voiceTip('端到端语音没接通（' + e.message + '），这通电话用原来的方式。'); }
+  }
   call.sending = true;
   try { await voiceApi('hello', { body: JSON.stringify({ hour: new Date().getHours() }) }); } catch (e) { if (call.on) callListen(); }
   call.sending = false;
@@ -2063,7 +2158,10 @@ async function callStart() {
 function callStop() {
   call.on = false;
   try { if (call.audio) call.audio.pause(); if (window.speechSynthesis) speechSynthesis.cancel(); } catch (e) { /* 没在播 */ }
-  try { call.node.onaudioprocess = null; for (const t of call.stream.getTracks()) t.stop(); call.ctx.close(); } catch (e) { /* 已经关了 */ }
+  try { call.node.onaudioprocess = null; } catch (e) { /* 已经关了 */ }
+  try { for (const t of call.mic.getTracks()) t.stop(); } catch (e) { /* 已经关了 */ }   // 关掉麦克风
+  try { call.ctx.close(); } catch (e) { /* 已经关了 */ }
+  rtStop();
   Object.assign(call, { state: 'idle', ctx: null, stream: null, node: null, audio: null, queue: [], speaking: false });
   $('voiceOpen').classList.remove('on'); $('voiceOpenText').textContent = '开始通话'; $('voiceState').hidden = true;
   clearInterval(call.clock); streamDrop(); callPaint('idle');
@@ -2093,6 +2191,8 @@ async function asrDialog(note, bad) {
       <label class="asr-radio"><input type="checkbox" name="stream" ${d.stream ? 'checked' : ''}>边说边出字（流式识别，需要在火山引擎另外开通“豆包流式语音识别模型2.0”）</label>
       ${d.fastModel ? `<label class="asr-radio"><input type="checkbox" name="fast" ${d.fast ? 'checked' : ''}>通话时用更快的模型接话（${esc(d.fastModel)}，一般一两秒；不勾则用 ${esc(d.mainModel)}，一般六到十秒）</label><p class="dlg-note" style="margin:2px 0 6px 22px">只影响电话里的回答和派活；审批命令、写简报仍然是 ${esc(d.mainModel)}。</p>` : ''}
       <label class="asr-radio"><input type="checkbox" name="tts" ${d.tts ? 'checked' : ''}>用豆包的声音回答（需要开通“豆包语音合成模型2.0”；不勾就用本机的声音）</label>
+      <label class="asr-radio"><input type="checkbox" name="rt" ${d.rt ? 'checked' : ''}>试用端到端语音通话（接话更快，不到两秒；需要开通“端到端实时语音大模型”）</label>
+      <p class="dlg-note" style="margin:2px 0 6px 22px">开着时：听你说话、开口回答的是豆包的实时语音模型，闲聊和问现状由它直接答；你交代的事、叫停、挂电话仍然交给 ${esc(d.mainModel || 'CEO 的主模型')} 在后台决定和办理，它办好后再告诉你。接不通时这通电话自动用原来的方式。随时可以取消勾选换回去。</p>
       <label>音色<select name="speakerPick">
         <option value="zh_female_vv_uranus_bigtts">Vivi（女声，默认）</option>
         <option value="zh_female_xiaohe_uranus_bigtts">小何（女声）</option>
@@ -2107,7 +2207,7 @@ async function asrDialog(note, bad) {
   f.speakerPick.value = [...f.speakerPick.options].some((o) => o.value === d.speaker) ? d.speaker : '';
   const sync = () => { for (const el of f.querySelectorAll('[data-mode]')) el.hidden = el.dataset.mode !== f.mode.value; f.querySelector('[data-other-speaker]').hidden = f.speakerPick.value !== ''; };
   sync(); f.addEventListener('change', sync);
-  const save = async () => voiceApi('asr/save', { body: JSON.stringify({ mode: f.mode.value, apiKey: f.apiKey.value, appId: f.appId.value, accessToken: f.accessToken.value, hotwords: f.hotwords.value, enabled: f.enabled.checked, stream: f.stream.checked, tts: f.tts.checked, fast: Boolean(f.fast && f.fast.checked), speaker: f.speakerPick.value || f.speaker.value }) });
+  const save = async () => voiceApi('asr/save', { body: JSON.stringify({ mode: f.mode.value, apiKey: f.apiKey.value, appId: f.appId.value, accessToken: f.accessToken.value, hotwords: f.hotwords.value, enabled: f.enabled.checked, stream: f.stream.checked, tts: f.tts.checked, fast: Boolean(f.fast && f.fast.checked), rt: Boolean(f.rt && f.rt.checked), speaker: f.speakerPick.value || f.speaker.value }) });
   const msg = (t, isBad) => { $('asrMsg').textContent = t; $('asrMsg').className = 'asr-msg' + (isBad ? ' dlg-bad' : ''); };
   $('asrClose').addEventListener('click', () => dlgClose(false));
   f.addEventListener('submit', async (e) => { e.preventDefault(); try { const r = await save(); asrDialog(r.enabled ? '已保存，之后的通话用豆包语音识别。' : r.hasKey ? '已保存，目前用本机的小模型。' : '已保存。还没有填密钥，所以用的还是本机的小模型。'); } catch (err) { msg(err.message, true); } });

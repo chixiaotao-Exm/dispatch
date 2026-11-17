@@ -23,7 +23,7 @@ module.exports = function (ctx) {
   const asrReady = () => Boolean(asr.enabled && ctx.asrFile && asrHasKey());
   const saveAsr = () => { fs.writeFileSync(ctx.asrFile + '.tmp', JSON.stringify(asr), { mode: 0o600 }); fs.renameSync(ctx.asrFile + '.tmp', ctx.asrFile); };
   const tail = (v) => (v ? '…' + String(v).slice(-4) : '');
-  const asrView = () => ({ enabled: asr.enabled, mode: asr.mode, hasKey: asrHasKey(), keyTail: asr.mode === 'new' ? tail(asr.apiKey) : tail(asr.accessToken), appId: asr.mode === 'old' ? asr.appId : '', hotwords: asr.hotwords, stream: asr.stream !== false, tts: asr.tts !== false, speaker: asr.speaker, fast: Boolean(asr.fast), fastModel: ctx.fastModel || '', mainModel: ctx.mainModel || '', ...asrState });
+  const asrView = () => ({ enabled: asr.enabled, mode: asr.mode, hasKey: asrHasKey(), keyTail: asr.mode === 'new' ? tail(asr.apiKey) : tail(asr.accessToken), appId: asr.mode === 'old' ? asr.appId : '', hotwords: asr.hotwords, stream: asr.stream !== false, tts: asr.tts !== false, speaker: asr.speaker, fast: Boolean(asr.fast), rt: Boolean(asr.rt), fastModel: ctx.fastModel || '', mainModel: ctx.mainModel || '', ...asrState });
   // 火山引擎"大模型录音文件极速版识别"：一次请求直接返回文字。自定义词随请求一起带过去。
   async function doubao(audio, format, useWords = true) {
     const request = { model_name: 'bigmodel', enable_itn: true, enable_punc: true };
@@ -240,6 +240,7 @@ ${PERSONA}
     try { speak = forSpeech((await ceoCall(SPEAK_PROMPT, JSON.stringify({ 谁: it.from, 做成了: it.ok, 结果: clip(it.text, 3000) }), 300)).text).slice(0, 240); } catch (e) { /* 说不出来就用下面那句 */ }
     it.speak = speak || (it.from + (it.ok ? '做完了' : '没有做成') + '，详细的在通话记录里。');
     save();
+    for (const r of rts.values()) rtSay(r, it.speak);   // 端到端通话正开着：直接念给主人听
   }
 
   function parse(text) {
@@ -321,7 +322,8 @@ ${PERSONA}
     return { ...out, botList };
   }
 
-  async function handleSay(text, inCall) {
+  async function handleSay(text, inCall, opts) {
+    opts = opts || {};
     busy = true;
     let hang = false;   // 主人说可以挂电话了：这一句回答说完，页面就把电话挂断
     let look = [];   // 这一句回答查了哪些部门的数据：页面会在地图上画出它去查的那一趟
@@ -339,7 +341,8 @@ ${PERSONA}
       return push({ ...m, ...extra });
     };
     try {
-      const d = await decide(text, inCall, onSay);
+      const d = await decide(text, inCall, opts.rt ? null : onSay);
+      opts.action = d.action;
       hang = Boolean(inCall && d.hangup);
       look = d.action === 'reply' ? d.look || [] : [];
       const findBot = (name) => { const want = String(name || '').toLowerCase(); return d.botList.find((b) => b.name.toLowerCase() === want) || (want && d.botList.find((b) => b.name.toLowerCase().includes(want))) || null; };
@@ -393,7 +396,7 @@ ${PERSONA}
         note({ verdict: 'dispatch', who: '', what: '主人口头交代的事，交给了专用 Agent' + (continued ? '（接着上一件继续）' : ''), reason: prompt.slice(0, 120) });
         return say({ role: 'ceo', text: d.say || '已经交给专用 Agent。', to: '专用 Agent', task: prompt, ref: { kind: 'agent', id: made.id }, state: 'running' });
       }
-      return say({ role: 'ceo', text: d.say || '我没有想好怎么回答，换个说法再说一遍。' });
+      return say({ role: 'ceo', text: (opts.replyText && opts.replyText()) || d.say || '我没有想好怎么回答，换个说法再说一遍。' });
     } catch (e) {
       return say({ role: 'ceo', text: '这句话没有处理成：' + String(e.message || e).slice(0, 160), failed: true });
     } finally { busy = false; }
@@ -428,6 +431,145 @@ ${PERSONA}
     } finally { ticking = false; }
   }
 
+  // ---- 端到端通话（试用，在"识别设置"里开）----
+  // 豆包的"端到端实时语音"模型直接听主人的声音、直接出声音，接话很快（不到一秒），打断也自然。
+  // 但它自己不会派活，所以分工是这样的：
+  //   · 闲聊、问现状：它自己答（现状写在给它的设定里，只是接通那一刻的情况）。
+  //   · 主人要办事、叫停、修改、挂电话：它只说一句固定的"收到，我安排一下。"；
+  //     同时每句话的文字都照常交给 CEO 的主模型（和普通通话走同一套决定、派活、叫停的逻辑），主模型定下来之后，
+  //     把要说的话交回给它念出来。也就是说：嘴和耳朵是豆包的，办事的脑子还是主模型。
+  // 页面和这里之间：上行每 0.1 秒送一小段麦克风的声音（rt/up），下行是一条一直开着的回应（rt/down），里面一帧一帧地放声音和事件。
+  const rts = new Map();
+  const RT_ACK = '收到，我安排一下。';
+  const u32 = (n) => { const b = Buffer.alloc(4); b.writeUInt32BE(n); return b; };
+  // 发给豆包的一帧：事件号 + 会话号 + 内容。内容是文字（JSON）或者一段原始声音。
+  const rtFrame = (event, sid, payload) => {
+    const raw = Buffer.isBuffer(payload), p = raw ? payload : Buffer.from(JSON.stringify(payload)), s = sid ? Buffer.from(sid) : null;
+    return Buffer.concat([Buffer.from([0x11, raw ? 0x24 : 0x14, raw ? 0x00 : 0x10, 0x00]), u32(event), ...(s ? [u32(s.length), s] : []), u32(p.length), p]);
+  };
+  function rtParse(buf) {
+    const type = buf[1] >> 4, flags = buf[1] & 15, isJson = (buf[2] >> 4) === 1, out = { type, event: 0 };
+    let o = 4;
+    if (type === 15) { out.code = buf.readUInt32BE(o); o += 4; }
+    if (flags & 4) { out.event = buf.readUInt32BE(o); o += 4; }
+    if (type !== 15 && out.event >= 100) { o += 4 + buf.readUInt32BE(o); }   // 会话级的事件：后面跟着会话号
+    else if (type !== 15 && out.event >= 50) { const n = buf.readUInt32BE(o); if (n > 0 && n < 200 && o + 8 + n <= buf.length) o += 4 + n; }   // 连接级的事件：可能跟着连接号
+    const n = buf.readUInt32BE(o), p = buf.subarray(o + 4, o + 4 + n);
+    if (isJson || type === 15) { try { out.json = JSON.parse(p.toString('utf8') || '{}'); } catch (e) { out.json = { error: p.toString('utf8').slice(0, 200) }; } } else out.audio = p;
+    return out;
+  }
+  // 给页面的一帧：1 字节类型（1 声音，2 事件，0 保持连接）+ 4 字节长度 + 内容。页面还没来取的时候先攒着。
+  function rtDown(s, type, payload) {
+    const p = Buffer.isBuffer(payload) ? payload : Buffer.from(JSON.stringify(payload || {})), f = Buffer.concat([Buffer.from([type]), u32(p.length), p]);
+    if (s.down) { try { s.down.write(f); } catch (e) { /* 页面已经断开 */ } } else if (s.queue.length < 400) s.queue.push(f);
+  }
+  const rtSend = (s, f) => { try { if (s.ws && s.ws.readyState === 1) s.ws.send(f); } catch (e) { /* 连接已经断了 */ } };
+  // 让它把一段现成的话念出来（主模型定下来的话、下属交回来的结果）。
+  function rtSay(s, text) {
+    text = forSpeech(text);
+    if (!text || s.closed || !s.ready) return;
+    rtSend(s, rtFrame(500, s.sid, { start: true, content: text, end: false }));
+    rtSend(s, rtFrame(500, s.sid, { start: false, content: '', end: true }));
+    rtDown(s, 2, { t: 'say', text });
+  }
+  function rtClose(s, why) {
+    if (s.closed) return;
+    s.closed = true; rts.delete(s.sid); clearInterval(s.timer);
+    rtSend(s, rtFrame(102, s.sid, {}));
+    setTimeout(() => { try { s.ws.close(); } catch (e) { /* 已经关了 */ } }, 300);
+    if (why) rtDown(s, 2, { t: 'end', why });
+    try { if (s.down) s.down.end(); } catch (e) { /* 已经断开 */ }
+    console.log(`[端到端通话] 结束（${why || '主人挂断'}），一共 ${s.turns.length} 句，通话 ${Math.round((Date.now() - s.born) / 1000)} 秒`);
+  }
+  // 主人说完了一句：文字照常交给 CEO 的主模型去决定、去办；它那边定下来之后，看要不要把话交回来念。
+  async function rtDecide(s, turn) {
+    const deferred = () => !turn.reply.trim() || turn.reply.includes('安排一下');   // 豆包没自己答（说的是那句固定的话，或者什么都没说）
+    const opts = { rt: true, replyText: () => (deferred() ? '' : turn.reply.trim()) };
+    const t0 = Date.now();
+    const it = await handleSay(turn.text, true, opts);
+    if (s.closed || !it) return;
+    const speak = deferred() || opts.action !== 'reply' || it.failed;
+    console.log(`[端到端通话] 「${turn.text.slice(0, 30)}」→ 豆包${deferred() ? '交给后台' : '自己答了'}，主模型的决定是 ${opts.action || '没定下来'}（${((Date.now() - t0) / 1000).toFixed(1)} 秒）${speak ? '，把主模型的话交回去念' : ''}`);
+    if (speak) rtSay(s, it.text);
+    if (it.hangup) { s.hang = true; setTimeout(() => { if (!s.closed && s.hang && !s.ttsOn) rtDown(s, 2, { t: 'hangup' }); }, 4000); }   // 说完道别的话就挂；它早就说完了的话，等四秒直接挂
+  }
+  function rtOpen(hour) {
+    if (!asrHasKey()) throw new Error('还没有填豆包的密钥');
+    for (const old of [...rts.values()]) rtClose(old, '开了新的通话');
+    const s = { sid: crypto.randomUUID(), ws: null, down: null, queue: [], turns: [], cur: null, heard: '', chain: Promise.resolve(), ttsOn: false, hang: false, at: Date.now(), born: Date.now(), closed: false, ready: false, timer: null, waiters: [] };
+    rts.set(s.sid, s);
+    const todo = (state.todo || []).filter((t) => t && t.text).map((t) => String(t.text).replace(/\s+/g, ' ').slice(0, 80)).slice(0, 6);
+    const plain = (t) => String(t || '').replace(/[\\"`]/g, '').replace(/\s+/g, ' ');   // 设定里不能有反斜杠、引号这类符号，豆包那边会解析出错
+    const role = plain('你是调度台的 CEO Agent，正在和主人' + (ctx.ownerName || '') + '打语音电话。你自己只做两件事：闲聊；以及根据下面的当前情况回答运行状况，只用这里写的内容，这里没有的就说你手上没有这项数据，绝对不要编造数字。'
+      + '凡是主人要你去办事、派人、让某个 Bot 或 Agent 做什么、查资料、打开什么、发送什么、买什么送什么、叫停或暂停什么、修改刚才交代的事、问某件交代的事办得怎么样，或者表示要挂电话、说再见：这些你自己都办不了，由后台的调度来办。'
+      + '遇到这些情况你只说这一句固定的话，一个字都不要多：' + RT_ACK + ' 不要假装已经办了，不要追问细节，不要复述他的要求。'
+      + '当前情况（电话接通时的）：' + (state.brief && state.brief.text ? state.brief.text : '暂时没有简报。') + (todo.length ? ' 需要留意的事：' + todo.join('；') + '。' : ' 现在没有告警。')).slice(0, 3400);
+    const style = plain('嘴欠、爱抬杠爱吐槽的老搭档，但不是每句都损人，多数时候就是干脆利落地正常说话；口语化，简短，一般不超过五十个字；不念网址、代码和符号。');
+    const auth = asr.mode === 'new' ? { 'X-Api-Key': asr.apiKey } : { 'X-Api-App-ID': asr.appId, 'X-Api-Access-Key': asr.accessToken };
+    const ws = new WebSocket('wss://openspeech.bytedance.com/api/v3/realtime/dialogue', { headers: { ...auth, 'X-Api-Resource-Id': 'volc.speech.dialog', 'X-Api-App-Key': 'PlgvMymc7f3tQnJ6', 'X-Api-Connect-Id': crypto.randomUUID() } });
+    ws.binaryType = 'arraybuffer';
+    s.ws = ws;
+    const fail = (msg) => { s.error = msg; for (const w of s.waiters.splice(0)) w(); if (!s.closed) { console.log('[端到端通话] ' + msg); rtClose(s, msg); } };
+    ws.onopen = () => rtSend(s, rtFrame(1, null, {}));
+    ws.onerror = () => fail('和豆包的连接没建立起来（可能没有开通“端到端实时语音大模型”）');
+    ws.onclose = () => fail('和豆包的连接断了');
+    ws.onmessage = (m) => {
+      let f;
+      try { f = rtParse(Buffer.from(m.data)); } catch (e) { return; }
+      if (f.type === 15) return fail('豆包报错 ' + f.code + '：' + JSON.stringify(f.json || {}).slice(0, 160));
+      const j = f.json || {};
+      if (f.event === 50) return rtSend(s, rtFrame(100, s.sid, {
+        asr: { extra: { end_smooth_window_ms: 1500 } },
+        tts: { speaker: 'zh_female_vv_jupiter_bigtts', audio_config: { channel: 1, format: 'pcm_s16le', sample_rate: 24000 }, extra: {} },
+        dialog: { bot_name: 'CEO Agent', system_role: role, speaking_style: style, extra: { model: ['1', '2', '1', '1'].join('.'), input_mod: 'keep_alive' } },
+      }));
+      if (f.event === 51 || f.event === 153) return fail('豆包没有开成这通电话：' + String(j.error || '').slice(0, 160));
+      if (f.event === 599) { console.log('[端到端通话] 豆包提示 ' + JSON.stringify(j).slice(0, 200)); return; }
+      if (f.event === 150) {   // 会话开好了：让它先开口问好
+        s.ready = true;
+        const hello = helloText(hour);
+        push({ role: 'ceo', text: hello, hello: true });
+        rtSend(s, rtFrame(300, s.sid, { content: forSpeech(hello) }));
+        rtDown(s, 2, { t: 'say', text: hello });
+        if (ctx.ceoWarm) ctx.ceoWarm(PROMPT);
+        for (const w of s.waiters.splice(0)) w();
+        return;
+      }
+      if (f.event === 450) { s.heard = ''; s.hang = false; rtDown(s, 2, { t: 'interrupt' }); if (ctx.ceoWarm) ctx.ceoWarm(PROMPT); return; }   // 主人开口了：页面马上停掉正在播的声音
+      if (f.event === 451) { const r = (j.results || [])[0]; if (r && r.text) { s.heard = r.text; rtDown(s, 2, { t: 'asr', text: r.text }); } return; }
+      if (f.event === 459) {   // 主人这一句说完了
+        const text = String(s.heard || '').trim();
+        s.heard = '';
+        if (!text) return;
+        const turn = { text, reply: '' };
+        s.turns.push(turn); s.cur = turn;
+        push({ role: 'me', text });
+        rtDown(s, 2, { t: 'heard', text });
+        s.chain = s.chain.then(() => rtDecide(s, turn)).catch((e) => console.log('[端到端通话] 这一句没处理成：' + String(e.message || e).slice(0, 120)));
+        return;
+      }
+      if (f.event === 550) { if (s.cur && j.content) s.cur.reply += j.content; return; }
+      if (f.event === 350) { s.ttsOn = true; if (j.text && j.tts_type !== 'chat_tts_text') rtDown(s, 2, { t: 'say', text: j.text }); return; }
+      if (f.event === 352 && f.audio) { s.ttsOn = true; return rtDown(s, 1, f.audio); }
+      if (f.event === 359) { s.ttsOn = false; rtDown(s, 2, { t: 'ttsend' }); if (s.hang) { s.hang = false; rtDown(s, 2, { t: 'hangup' }); } }
+    };
+    // 页面半分钟没送声音来（关了网页、断网）：收掉这通电话。每十几秒往下行里放一个空帧，免得中间的代理以为连接死了。
+    s.timer = setInterval(() => { if (Date.now() - s.at > 30000) rtClose(s, '页面那边没有声音送来了'); else rtDown(s, 0, Buffer.alloc(0)); }, 12000);
+    return s;
+  }
+
+  // 电话接通时的开场白：按当前状态直接拼出来，不用等模型。
+  function helloText(h) {
+    const hi = h >= 5 && h < 11 ? '早上好' : h >= 11 && h < 13 ? '中午好' : h >= 13 && h < 18 ? '下午好' : '晚上好';
+    const todo = (state.todo || []).filter((t) => t && t.text);
+    const text = ctx.persona ? hi + (ctx.ownerName ? '，' + ctx.ownerName : '') + '。我是 CEO Agent。'
+      + (todo.length ? `现在有 ${todo.length} 件事需要留意，最要紧的是：${String(todo[0].text).replace(/\s+/g, ' ').slice(0, 60)}。` : '现在一切正常，没有告警。') + '有什么要交代的？'
+      // 默认性格（反骨仔）的开场白：嘴欠，但该报的情况照报。
+      : '哟，' + (ctx.ownerName ? ctx.ownerName + '，' : '') + (h >= 0 && h < 5 ? '大半夜的还不睡。' : h < 11 ? '这么早就来了。' : h < 18 ? '又是你。' : '大晚上的又来了。')
+      + (todo.length ? `先说正事，现在有 ${todo.length} 件事要留意，最要紧的是：${String(todo[0].text).replace(/\s+/g, ' ').slice(0, 60)}。` : '放心，现在一切正常，没出什么幺蛾子。') + '说吧，这回又要我干嘛？';
+    return text;
+  }
+
   const json = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
   const readRaw = (req, max) => new Promise((resolve, reject) => {
     const parts = []; let n = 0;
@@ -441,6 +583,16 @@ ${PERSONA}
       const route = pathname.slice('/api/voice'.length);
       if (req.method === 'GET' && route === '/log') return json(res, 200, { items: log.slice(-60), busy });
       if (req.method === 'GET' && route === '/asr') return json(res, 200, asrView());
+      // 端到端通话的下行：一条一直开着的回应，声音和事件一帧一帧往里放。页面断开就收掉这通电话。
+      if (req.method === 'GET' && route === '/rt/down') {
+        const r = rts.get(String(new URL(req.url, 'http://x').searchParams.get('sid') || ''));
+        if (!r) return json(res, 410, { error: '这通电话已经结束了' });
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' });
+        r.down = res;
+        for (const f of r.queue.splice(0)) res.write(f);
+        req.on('close', () => rtClose(r, ''));
+        return;
+      }
       if (req.method !== 'POST') return json(res, 405, { error: 'method not allowed' });
       if (req.headers['x-voice-action'] !== '1') return json(res, 403, { error: '请求来源不对' });
       // 流式识别：页面每 0.2 秒送来一小段正在说的话，回给它到目前为止认出来的字。
@@ -452,6 +604,23 @@ ${PERSONA}
         if (!streams.has(sid) && streams.size >= 6) return json(res, 429, { error: '同时在识别的太多了' });
         if (!streams.has(sid) && ctx.ceoWarm) ctx.ceoWarm(PROMPT);   // 主人刚开口：趁他说话，让 CEO 的模型先准备好
         return json(res, 200, await pushStream(sid, await readRaw(req, 2 * 1024 * 1024), q.get('last') === '1'));
+      }
+      if (route === '/rt/start') {
+        const body = JSON.parse((await readRaw(req, 2000)).toString('utf8') || '{}');
+        const r = rtOpen(Number(body.hour));
+        await new Promise((ok) => { r.waiters.push(ok); setTimeout(ok, 9000); });
+        if (!r.ready) { const why = r.error || '豆包那边没有回应'; rtClose(r, why); return json(res, 502, { error: why }); }
+        console.log('[端到端通话] 接通');
+        return json(res, 200, { sid: r.sid });
+      }
+      if (route === '/rt/up' || route === '/rt/stop') {
+        const r = rts.get(String(new URL(req.url, 'http://x').searchParams.get('sid') || ''));
+        if (route === '/rt/stop') { await readRaw(req, 2000); if (r) rtClose(r, ''); return json(res, 200, { ok: true }); }
+        const pcm = await readRaw(req, 1024 * 1024);
+        if (!r) return json(res, 410, { error: '这通电话已经结束了' });
+        r.at = Date.now();
+        for (let o = 0; o + 1 < pcm.length; o += 640) rtSend(r, rtFrame(200, r.sid, pcm.subarray(o, Math.min(pcm.length, o + 640))));   // 豆包建议每 20 毫秒一包
+        return json(res, 200, { ok: true });
       }
       if (route === '/stt') {
         const audio = await readRaw(req, 12 * 1024 * 1024);
@@ -496,6 +665,7 @@ ${PERSONA}
         asr.stream = body.stream !== false;
         asr.tts = body.tts !== false;
         asr.fast = Boolean(body.fast);
+        asr.rt = Boolean(body.rt);
         if (/^[\w-]{3,80}$/.test(String(body.speaker || '').trim())) asr.speaker = String(body.speaker).trim();
         asrState.ttsError = ''; asrState.ttsDownUntil = 0;
         asrState.streamWords = true; asrState.streamDownUntil = 0;
@@ -532,14 +702,7 @@ ${PERSONA}
       // 电话一接通，CEO Agent 先开口：问好，顺带说一句现在的情况。这句话是按当前状态直接拼出来的，不用等模型，所以一接通就能说。
       if (route === '/hello') {
         const body = JSON.parse((await readRaw(req, 2000)).toString('utf8') || '{}');
-        const h = Number(body.hour);
-        const hi = h >= 5 && h < 11 ? '早上好' : h >= 11 && h < 13 ? '中午好' : h >= 13 && h < 18 ? '下午好' : '晚上好';
-        const todo = (state.todo || []).filter((t) => t && t.text);
-        const text = ctx.persona ? hi + (ctx.ownerName ? '，' + ctx.ownerName : '') + '。我是 CEO Agent。'
-          + (todo.length ? `现在有 ${todo.length} 件事需要留意，最要紧的是：${String(todo[0].text).replace(/\s+/g, ' ').slice(0, 60)}。` : '现在一切正常，没有告警。') + '有什么要交代的？'
-          // 默认性格（反骨仔）的开场白：嘴欠，但该报的情况照报。
-          : '哟，' + (ctx.ownerName ? ctx.ownerName + '，' : '') + (h >= 0 && h < 5 ? '大半夜的还不睡。' : h < 11 ? '这么早就来了。' : h < 18 ? '又是你。' : '大晚上的又来了。')
-          + (todo.length ? `先说正事，现在有 ${todo.length} 件事要留意，最要紧的是：${String(todo[0].text).replace(/\s+/g, ' ').slice(0, 60)}。` : '放心，现在一切正常，没出什么幺蛾子。') + '说吧，这回又要我干嘛？';
+        const text = helloText(Number(body.hour));
         push({ role: 'ceo', text, hello: true });
         if (ctx.ceoWarm) ctx.ceoWarm(PROMPT);   // 电话接通：让 CEO 的模型先开好等着
         return json(res, 200, { ok: true });
