@@ -1868,7 +1868,12 @@ async function callStart() {
   try { for (const m of (await voiceApi('log')).items || []) call.spoken.add(m.id); } catch (e) { /* 取不到就算了 */ }
   call.startId = Math.max(0, ...call.spoken); call.t0 = Date.now(); clearInterval(call.clock); call.clock = setInterval(callClock, 1000); callClock();
   $('voiceOpen').classList.add('on'); $('voiceOpenText').textContent = '挂断'; voiceTip('');
-  callListen(); voiceKey = ''; voicePolling();
+  // 电话接通后由 CEO Agent 先开口：让它问好并说一句现在的情况，它说完再轮到你。请不到这句开场白时，就直接开始听。
+  voiceState('think', '正在接通…');
+  call.sending = true;
+  try { await voiceApi('hello', { body: JSON.stringify({ hour: new Date().getHours() }) }); } catch (e) { if (call.on) callListen(); }
+  call.sending = false;
+  voiceKey = ''; voicePolling();
 }
 function callStop() {
   call.on = false;

@@ -170,6 +170,18 @@ action 是 agent 或 bot 时，say 用一句话告诉主人交给了谁、去做
         handleSay(text, body.call === true);   // 不等它：页面会自己来取结果
         return json(res, 200, { ok: true });
       }
+      // 电话一接通，CEO Agent 先开口：问好，顺带说一句现在的情况。这句话是按当前状态直接拼出来的，不用等模型，所以一接通就能说。
+      if (route === '/hello') {
+        const body = JSON.parse((await readRaw(req, 2000)).toString('utf8') || '{}');
+        const h = Number(body.hour);
+        const hi = h >= 5 && h < 11 ? '早上好' : h >= 11 && h < 13 ? '中午好' : h >= 13 && h < 18 ? '下午好' : '晚上好';
+        const todo = (state.todo || []).filter((t) => t && t.text);
+        const text = hi + (ctx.ownerName ? '，' + ctx.ownerName : '') + '。我是 CEO Agent。'
+          + (todo.length ? `现在有 ${todo.length} 件事需要留意，最要紧的是：${String(todo[0].text).replace(/\s+/g, ' ').slice(0, 60)}。` : '现在一切正常，没有告警。')
+          + '有什么要交代的？';
+        push({ role: 'ceo', text, hello: true });
+        return json(res, 200, { ok: true });
+      }
       if (route === '/tts') {
         const body = JSON.parse((await readRaw(req, 20000)).toString('utf8') || '{}');
         const text = forSpeech(body.text);
