@@ -1,0 +1,111 @@
+#!/usr/bin/env node
+// vault：让容器里的 Agent 申请使用主人密码库里的一条密码 / 密钥。
+// 密码不在容器里：申请被提交给容器外的"审批中间人"，只有 CEO Agent 批准了才会交出来（它拒绝、拿不准或没回应都不交）。
+// 用法：
+//   vault list                                    看有哪些可以申请（只有名称和用途）
+//   vault run <名称> --why "做什么" -- <命令…>     推荐：运行一条命令，密码放在环境变量里交给它，不会显示出来
+//   vault get <名称> --why "做什么"                把密码打印出来（只有确实需要拿到明文时才用）
+const http = require('http');
+const { spawn } = require('child_process');
+
+const SOCKET = process.env.OPS_SOCKET || '/home/agent/.ops/ops.sock';
+const WHO = process.env.OPS_AGENT === 'auto' ? 'auto' : 'agent';
+const WAIT_MS = 3 * 60 * 1000;
+const HELP = `用法：
+  vault list                                   看有哪些密码可以申请（只显示名称和用途）
+  vault run <名称> --why "做什么" -- <命令…>    推荐。运行一条命令，密码通过环境变量交给它：
+                                                 $VAULT_PASSWORD（密码 / Key）  $VAULT_ACCOUNT（账号，没有登记就是空的）
+                                               命令的输出里如果出现密码，会被自动换成 ******
+  vault get <名称> --why "做什么"               把密码打印到标准输出（账号打印在提示信息里）
+每次申请都要经 CEO Agent 批准，--why 必须写清楚要拿它做什么。被拒绝后不要换个说法重试，停下来向主人说明。
+例子：
+  vault run Cloudflare接口密钥 --why "查询 example.com 的解析记录" -- sh -c 'curl -s -H "Authorization: Bearer $VAULT_PASSWORD" https://api.cloudflare.com/client/v4/zones'`;
+
+function call(method, path, body) {
+  return new Promise((resolve, reject) => {
+    const data = body ? Buffer.from(JSON.stringify(body)) : null;
+    const req = http.request({ socketPath: SOCKET, path, method, headers: data ? { 'Content-Type': 'application/json', 'Content-Length': data.length } : {} }, (res) => {
+      let s = '';
+      res.on('data', (c) => { s += c; });
+      res.on('end', () => { try { resolve({ status: res.statusCode, body: JSON.parse(s || '{}') }); } catch (e) { reject(new Error('审批服务返回了无法识别的内容')); } });
+    });
+    req.on('error', () => reject(new Error('连不上审批服务（' + SOCKET + '）。密码库功能可能没有启用。')));
+    if (data) req.write(data);
+    req.end();
+  });
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const say = (s) => process.stderr.write('[vault] ' + s + '\n');
+
+async function obtain(name, why) {
+  const created = await call('POST', '/vault/request', { name, why, agent: WHO });
+  if (created.status !== 200) { say('没有提交成功：' + (created.body.error || created.status)); process.exit(2); }
+  const id = created.body.id;
+  say('已提交申请：使用密码「' + name + '」，等 CEO Agent 审核…');
+  const started = Date.now();
+  for (;;) {
+    await sleep(1500);
+    const r = (await call('GET', '/result?id=' + id)).body;
+    const rv = r.review || {};
+    if (r.status === 'pending') {
+      if (Date.now() - started > WAIT_MS) { say('等待超时，没有拿到密码。'); process.exit(4); }
+      continue;
+    }
+    if (r.status === 'done' && rv.state === 'allow') break;
+    say('CEO Agent 没有批准' + (rv.reason ? '：' + rv.reason : '') + '。不要换个说法重试，停下来向主人说明你想做什么。');
+    process.exit(3);
+  }
+  const got = await call('GET', '/vault/take?id=' + id);
+  if (got.status !== 200) { say('已批准，但没取到：' + (got.body.error || got.status)); process.exit(4); }
+  say('CEO Agent 已批准。');
+  return got.body;
+}
+
+(async () => {
+  const argv = process.argv.slice(2);
+  const cmd = argv[0];
+  if (!cmd || cmd === '-h' || cmd === '--help' || cmd === 'help') { console.log(HELP); process.exit(cmd ? 0 : 2); }
+  if (cmd === 'list') {
+    const r = await call('GET', '/vault/list?agent=' + WHO);
+    const items = r.body.secrets || [];
+    if (!items.length) { console.log('密码库是空的：主人还没有存任何密码。'); return; }
+    for (const s of items) console.log(s.name + (s.hasAccount ? '（带账号）' : '') + (s.allowed ? '' : '（主人没有允许你申请这条）') + '\n    用途：' + (s.note || '（没有说明）'));
+    return;
+  }
+  if (cmd !== 'get' && cmd !== 'run') { say('不认识的用法。'); console.log(HELP); process.exit(2); }
+  const sep = argv.indexOf('--');
+  const head = sep >= 0 ? argv.slice(1, sep) : argv.slice(1);
+  const rest = sep >= 0 ? argv.slice(sep + 1) : [];
+  let why = '';
+  const i = head.indexOf('--why');
+  if (i >= 0) { why = head[i + 1] || ''; head.splice(i, 2); }
+  const name = head[0];
+  if (!name || head.length !== 1) { say('要给出一个密码名称。用 vault list 看有哪些。'); process.exit(2); }
+  if (!why.trim()) { say('必须用 --why 说明要拿它做什么。'); process.exit(2); }
+  if (cmd === 'run' && !rest.length) { say('run 后面要用 -- 接上要运行的命令。'); process.exit(2); }
+
+  const s = await obtain(name, why);
+  if (cmd === 'get') {
+    if (s.account) say('账号：' + s.account);
+    say('下面这一行是密码。用完就行，不要把它写进文件、回复、邮件或日志里。');
+    process.stdout.write(s.value + '\n');
+    return;
+  }
+  // run：密码只放进这条命令的环境变量；命令输出里若出现密码，换成 ******。
+  const child = spawn(rest[0], rest.slice(1), { stdio: ['inherit', 'pipe', 'pipe'], env: { ...process.env, VAULT_PASSWORD: s.value, VAULT_KEY: s.value, VAULT_ACCOUNT: s.account || '' } });
+  const mask = (stream, out) => {
+    let buf = '';
+    const hide = (t) => (s.value.length >= 4 ? t.split(s.value).join('******') : t);
+    stream.setEncoding('utf8');
+    stream.on('data', (c) => {   // 留一小段尾巴，防止密码正好被切在两块数据中间
+      buf = hide(buf + c);
+      const cut = Math.max(0, buf.length - (s.value.length - 1));
+      out.write(buf.slice(0, cut)); buf = buf.slice(cut);
+    });
+    stream.on('end', () => out.write(hide(buf)));
+  };
+  mask(child.stdout, process.stdout);
+  mask(child.stderr, process.stderr);
+  child.on('error', (e) => { say('命令没能运行：' + e.message); process.exit(127); });
+  child.on('close', (code) => process.exit(code === null ? 1 : code));
+})().catch((e) => { say(e.message); process.exit(5); });

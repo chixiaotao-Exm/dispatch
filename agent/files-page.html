@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>专用 Agent · 文件</title>
+<style>
+:root{--bg:#0d1017;--card:#151a24;--line:#263044;--text:#e8ecf3;--sub:#93a0b5;--mute:#5f6b80;--accent:#ff9a4d;--bad:#ef5b5b;--ok:#34c38f;--warn:#f0a53a;--run:#5b9dff}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,"Microsoft YaHei",sans-serif;display:flex;flex-direction:row}
+.bar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap;flex:none}
+.crumbs{display:flex;align-items:center;gap:2px;flex:1;min-width:200px;flex-wrap:wrap;font-size:14px}
+.crumbs button{background:none;border:0;color:var(--sub);padding:2px 6px;border-radius:6px;cursor:pointer;font:inherit}
+.crumbs button:hover{background:var(--card);color:var(--text)}
+.crumbs button:last-of-type{color:var(--text);font-weight:600}
+.crumbs span{color:var(--mute)}
+button.act{background:transparent;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:5px 12px;font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}
+button.act:hover{border-color:var(--accent)}
+button.act.main{border-color:var(--accent);color:var(--accent)}
+button.act.solid{background:var(--accent);border-color:var(--accent);color:#1a0f04;font-weight:600}
+button.act:disabled{opacity:.45;cursor:default}
+/* 编辑器里的两个主要按钮做得大一点、清楚一点。 */
+button.act.back{border-color:var(--sub);font-weight:600;padding:6px 14px}
+button.act.back:hover{border-color:var(--accent);color:var(--accent)}
+#vSave{padding:6px 18px;min-width:76px}
+button.act.solid:disabled{opacity:1;background:transparent;color:var(--sub);border-color:var(--line);font-weight:400}
+.list{flex:1;overflow:auto;position:relative}
+table{width:100%;border-collapse:collapse}
+th{position:sticky;top:0;background:var(--bg);text-align:left;font-weight:400;font-size:12px;color:var(--mute);padding:8px 14px;border-bottom:1px solid var(--line)}
+td{padding:8px 14px;border-bottom:1px solid color-mix(in srgb,var(--line) 55%,transparent);white-space:nowrap}
+tr:hover td{background:var(--card)}
+td.name{width:100%;white-space:normal;word-break:break-all}
+td.name a{color:var(--text);text-decoration:none;cursor:pointer}
+td.name a:hover{color:var(--accent)}
+td.num{color:var(--sub);font-variant-numeric:tabular-nums;font-size:13px}
+td.ops button{background:none;border:0;color:var(--mute);cursor:pointer;font:inherit;font-size:13px;padding:2px 6px;border-radius:6px}
+td.ops button:hover{color:var(--text);background:var(--line)}
+td.ops button.del:hover{color:var(--bad)}
+td.pick,th.pick{width:34px;padding-right:0}
+input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer;vertical-align:middle;margin:0}
+tr.sel td{background:color-mix(in srgb,var(--accent) 9%,transparent)}
+#bulk{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--bg));font-size:13px;flex:none;flex-wrap:wrap}
+#bulk b{color:var(--accent)}
+#bulk .sp{flex:1}
+button.act.danger:hover{border-color:var(--bad);color:var(--bad)}
+.ico{display:inline-block;width:22px;color:var(--accent)}
+.ico.f{color:var(--mute)}
+.empty{padding:48px 14px;text-align:center;color:var(--mute)}
+.msg{padding:8px 14px;font-size:13px;border-top:1px solid var(--line);color:var(--sub);min-height:37px;display:flex;align-items:center;gap:10px;flex:none}
+.msg.err{color:var(--bad)}.msg.ok{color:var(--ok)}
+.msg progress{flex:1;max-width:260px;height:6px}
+.drop{position:absolute;inset:8px;border:2px dashed var(--accent);border-radius:12px;background:color-mix(in srgb,var(--accent) 10%,transparent);display:none;align-items:center;justify-content:center;color:var(--accent);font-size:16px;pointer-events:none}
+.dragging .drop{display:flex}
+
+/* 查看/编辑器：盖在文件列表上面。 */
+/* 左右分栏 */
+.left{flex:0 0 36%;min-width:340px;max-width:580px;display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--line);container-type:inline-size}
+.right{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
+#placeholder{flex:1;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--mute);line-height:2;padding:20px}
+#placeholder b{color:var(--sub);font-size:15px}
+#viewer{flex:1;min-height:0;display:flex;flex-direction:column}
+tr.cur td{background:color-mix(in srgb,var(--accent) 16%,transparent)}
+tr.cur td.name a{color:var(--accent);font-weight:600}
+/* 左栏比较窄：大小和修改时间两列收起来，把宽度留给文件名；"打开"按钮也省掉（点文件名就是打开）。 */
+@container (max-width:620px){
+  th:nth-child(3),td:nth-child(3),th:nth-child(4),td:nth-child(4){display:none}
+  td.ops button[data-open]{display:none}
+  td,th{padding-left:10px;padding-right:8px}
+  .bar{padding:8px 10px;gap:6px}
+  button.act{padding:4px 9px}
+}
+/* 窗口很窄时放不下两栏：平时只显示列表，打开文件后编辑器盖住整个页面。 */
+@media (max-width:719px){
+  .left{flex:1;max-width:none;border-right:0}
+  .right{display:none}
+  body.has-doc .right{display:flex;position:fixed;inset:0;background:var(--bg);z-index:10}
+}
+.vbar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--line);flex:none;flex-wrap:wrap}
+.vbar .path{flex:1;min-width:160px;font-size:14px;word-break:break-all}
+.vbar .path b{font-weight:600}
+.vbar .path small{color:var(--mute);margin-left:8px;font-size:12px}
+.vbar .dirty{color:var(--warn);font-size:12px;white-space:nowrap}
+.vbody{flex:1;min-height:0;display:flex}
+#editor{flex:1;width:100%;resize:none;border:0;outline:none;background:var(--bg);color:var(--text);padding:14px 16px;font:13px/1.6 ui-monospace,Consolas,"Cascadia Mono",monospace;tab-size:2;white-space:pre;overflow:auto}
+#editor.wrap{white-space:pre-wrap;word-break:break-all}
+#preview{flex:1;overflow:auto;padding:16px 22px}
+#picture{flex:1;overflow:auto;display:flex;align-items:center;justify-content:center;padding:16px;background:
+  repeating-conic-gradient(#151a24 0 25%,#10141c 0 50%) 0 0/20px 20px}
+#picture img{max-width:100%;max-height:100%;object-fit:contain}
+#cant{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:var(--sub);padding:20px;text-align:center}
+.vfoot{padding:6px 14px;font-size:12px;color:var(--mute);border-top:1px solid var(--line);flex:none;display:flex;gap:14px;flex-wrap:wrap;min-height:30px}
+.vfoot.err{color:var(--bad)}.vfoot.ok{color:var(--ok)}
+/* Markdown 预览的排版 */
+.md{max-width:900px;line-height:1.7;word-break:break-word}
+.md>:first-child{margin-top:0}
+.md p{margin:10px 0}
+.md ul,.md ol{margin:10px 0;padding-left:24px}
+.md li{margin:3px 0}
+.md h4{margin:18px 0 8px;font-size:15px;font-weight:600}
+.md h4.h1{font-size:22px;border-bottom:1px solid var(--line);padding-bottom:6px}.md h4.h2{font-size:18px}.md h4.h3{font-size:16px}
+.md a{color:var(--run);text-decoration:none;border-bottom:1px solid color-mix(in srgb,var(--run) 40%,transparent)}
+.md code{font-family:ui-monospace,Consolas,monospace;font-size:13px;background:var(--card);border:1px solid var(--line);border-radius:5px;padding:0 5px}
+.md pre.code{font-family:ui-monospace,Consolas,monospace;font-size:13px;white-space:pre;overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:10px 0}
+.md blockquote{margin:10px 0;padding:2px 12px;border-left:3px solid var(--line);color:var(--sub)}
+.md hr{border:0;border-top:1px solid var(--line);margin:14px 0}
+.md .tbl{overflow:auto;margin:10px 0}
+.md table{width:auto;font-size:13px}
+.md th,.md td{position:static;border:1px solid var(--line);padding:5px 10px;white-space:normal;color:var(--text);font-size:13px;background:none}
+.md th{background:var(--card);font-weight:600}
+</style>
+</head>
+<body>
+<div class="left" id="left">
+<div class="bar">
+  <div class="crumbs" id="crumbs"></div>
+  <button class="act main" id="upBtn">上传文件</button>
+  <button class="act" id="newBtn">新建文件</button>
+  <button class="act" id="mkBtn">新建文件夹</button>
+  <button class="act" id="zipBtn" title="把当前文件夹打包成 zip 下载">打包下载</button>
+  <button class="act" id="reBtn">刷新</button>
+  <input type="file" id="picker" multiple hidden>
+</div>
+<div id="bulk" hidden>
+  <span>已选 <b id="bulkN">0</b> 项</span>
+  <span class="sp"></span>
+  <button class="act" id="bulkDl">下载所选</button>
+  <button class="act danger" id="bulkRm">删除所选</button>
+  <button class="act" id="bulkNone">取消选择</button>
+</div>
+<div class="list" id="list">
+  <table><thead><tr><th class="pick"><input type="checkbox" id="pickAll" title="全选 / 全不选" aria-label="全选"></th><th>名称</th><th>大小</th><th>修改时间</th><th></th></tr></thead><tbody id="rows"></tbody></table>
+  <div class="empty" id="empty" hidden>这个文件夹是空的。把文件拖到这里，或点"上传文件"。</div>
+  <div class="drop">松开鼠标，上传到当前文件夹</div>
+</div>
+<div class="msg" id="msg">Agent 的工作目录。点文件名，在右边查看和编辑。</div>
+</div>
+
+<div class="right" id="right">
+<div id="placeholder"><div><b>在左边点一个文件</b><br>文本和代码可以直接修改并保存，Markdown 可以预览，图片可以查看。</div></div>
+<div id="viewer" hidden>
+  <div class="vbar">
+    <div class="path"><b id="vName"></b><small id="vMeta"></small></div>
+    <span class="dirty" id="vDirty" hidden>有未保存的修改</span>
+    <button class="act" id="vPreview" hidden>预览</button>
+    <button class="act" id="vWrap" hidden title="长行是否自动折行">自动换行</button>
+    <button class="act" id="vDownload">下载</button>
+    <button class="act solid" id="vSave" hidden title="Ctrl+S">保存</button>
+    <button class="act back" id="vBack" title="关闭这个文件（Esc）">关闭文件</button>
+  </div>
+  <div class="vbody">
+    <textarea id="editor" spellcheck="false" hidden></textarea>
+    <div id="preview" hidden><div class="md" id="previewBody"></div></div>
+    <div id="picture" hidden><img id="pictureImg" alt=""></div>
+    <div id="cant" hidden><div id="cantText"></div><button class="act main" id="cantDownload">下载这个文件</button></div>
+  </div>
+  <div class="vfoot" id="vFoot"></div>
+</div>
+</div>
+
+<script>
+const API = '/files/api';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s === null || s === undefined ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const store = {
+  get(k) { try { return localStorage.getItem('agentFiles.' + k); } catch (e) { return null; } },
+  set(k, v) { try { if (v === null) localStorage.removeItem('agentFiles.' + k); else localStorage.setItem('agentFiles.' + k, v); } catch (e) {} },
+};
+let cwd = store.get('cwd') || '/';
+// 网址里带了 ?path= 就直接打开那个文件夹（调度台"存储"那一列的"打开"按钮用的）。
+const wanted = new URLSearchParams(location.search).get('path');
+if (wanted) { cwd = wanted; store.set('open', null); }
+const join = (dir, name) => (dir === '/' ? '' : dir) + '/' + name;
+const fmtSize = (n) => n === null ? '–' : n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : n < 1073741824 ? (n / 1048576).toFixed(1) + ' MB' : (n / 1073741824).toFixed(2) + ' GB';
+const fmtTime = (t) => t ? new Date(t).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '–';
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp|ico|svg)$/i;
+// ---- 勾选 / 多选 / 全选 ----
+// picked 里记的是当前文件夹里被勾选的名字。按住 Shift 点另一个勾选框，可以把两者之间的一起选上。
+const picked = new Set();
+let names = [];
+let lastPick = null;
+function paintPicked() {
+  $('bulk').hidden = picked.size === 0;
+  $('bulkN').textContent = picked.size;
+  const all = $('pickAll');
+  all.checked = names.length > 0 && picked.size === names.length;
+  all.indeterminate = picked.size > 0 && picked.size < names.length;
+  for (const tr of document.querySelectorAll('tr[data-row]')) {
+    const on = picked.has(tr.dataset.row);
+    tr.classList.toggle('sel', on);
+    tr.querySelector('input[data-pick]').checked = on;
+  }
+}
+document.addEventListener('click', (e) => {
+  const box = e.target.closest('input[data-pick]');
+  if (!box) return;
+  const name = box.dataset.pick;
+  if (e.shiftKey && lastPick !== null && names.includes(lastPick)) {
+    const a = names.indexOf(lastPick), b = names.indexOf(name);
+    for (const n of names.slice(Math.min(a, b), Math.max(a, b) + 1)) { if (box.checked) picked.add(n); else picked.delete(n); }
+  } else if (box.checked) picked.add(name); else picked.delete(name);
+  lastPick = name;
+  paintPicked();
+});
+function say(text, cls) { $('msg').className = 'msg ' + (cls || ''); $('msg').textContent = text; }
+async function call(route, params) {
+  const res = await fetch(API + route + '?' + new URLSearchParams(params), { method: 'POST', headers: { 'X-Files-Action': '1' } });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || '操作失败（' + res.status + '）');
+  return body;
+}
+async function load(dir) {
+  const res = await fetch(API + '/list?' + new URLSearchParams({ path: dir }));
+  if (res.status === 404 && dir !== '/') return load('/'); // 记住的文件夹已被删掉，回到最上层
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) { say(body.error || '读取失败（' + res.status + '）', 'err'); return; }
+  if (body.path !== cwd) picked.clear();
+  cwd = body.path;
+  store.set('cwd', cwd);
+  names = body.items.map((it) => it.name);
+  for (const n of [...picked]) if (!names.includes(n)) picked.delete(n);
+  const parts = cwd === '/' ? [] : cwd.slice(1).split('/');
+  $('crumbs').innerHTML = '<button data-go="/">workspace</button>' + parts.map((p, i) => '<span>/</span><button data-go="/' + esc(parts.slice(0, i + 1).join('/')) + '">' + esc(p) + '</button>').join('');
+  $('empty').hidden = body.items.length > 0;
+  $('rows').innerHTML = body.items.map((it) => {
+    const p = esc(join(cwd, it.name));
+    return '<tr data-row="' + esc(it.name) + '"' + (picked.has(it.name) ? ' class="sel"' : '') + '><td class="pick"><input type="checkbox" data-pick="' + esc(it.name) + '"' + (picked.has(it.name) ? ' checked' : '') + ' aria-label="选择 ' + esc(it.name) + '"></td><td class="name"><span class="ico ' + (it.dir ? '' : 'f') + '">' + (it.dir ? '▸' : '·') + '</span>'
+      + (it.dir ? '<a data-go="' + p + '">' + esc(it.name) + '</a>' : '<a data-open="' + p + '" title="点击查看和编辑">' + esc(it.name) + '</a>') + '</td>'
+      + '<td class="num">' + fmtSize(it.size) + '</td><td class="num">' + fmtTime(it.mtime) + '</td>'
+      + '<td class="ops">' + (it.dir ? '' : '<button data-open="' + p + '">打开</button>') + '<button data-dl="' + p + '">下载</button><button data-rn="' + p + '" data-name="' + esc(it.name) + '">改名</button><button class="del" data-rm="' + p + '" data-name="' + esc(it.name) + '" data-dir="' + (it.dir ? 1 : 0) + '">删除</button></td></tr>';
+  }).join('');
+  paintPicked();
+  markCurrent();
+}
+const download = (p) => { const a = document.createElement('a'); a.href = API + '/download?' + new URLSearchParams({ path: p }); a.download = ''; document.body.appendChild(a); a.click(); a.remove(); };
+document.addEventListener('click', async (e) => {
+  const t = e.target.closest('[data-go],[data-open],[data-dl],[data-rn],[data-rm]');
+  if (!t) return;
+  try {
+    if (t.dataset.go) return await load(t.dataset.go);
+    if (t.dataset.open) return await openFile(t.dataset.open);
+    if (t.dataset.dl) return download(t.dataset.dl);
+    if (t.dataset.rn) {
+      const name = prompt('新的名字：', t.dataset.name);
+      if (!name || name === t.dataset.name) return;
+      await call('/rename', { path: t.dataset.rn, name });
+      say('已改名为 ' + name, 'ok');
+    }
+    if (t.dataset.rm) {
+      const what = t.dataset.dir === '1' ? '文件夹"' + t.dataset.name + '"和里面的所有内容' : '文件"' + t.dataset.name + '"';
+      if (!confirm('确定删除' + what + '吗？删除后无法恢复。')) return;
+      await call('/delete', { path: t.dataset.rm });
+      say('已删除 ' + t.dataset.name, 'ok');
+    }
+    await load(cwd);
+  } catch (err) { say(err.message, 'err'); }
+});
+$('pickAll').onclick = () => { if ($('pickAll').checked) for (const n of names) picked.add(n); else picked.clear(); paintPicked(); };
+$('bulkNone').onclick = () => { picked.clear(); paintPicked(); };
+$('bulkDl').onclick = () => {
+  const list = [...picked];
+  if (list.length === 1) return download(join(cwd, list[0]));
+  const qs = new URLSearchParams({ path: cwd });
+  for (const n of list) qs.append('name', n);
+  const a = document.createElement('a'); a.href = API + '/zip?' + qs; a.download = ''; document.body.appendChild(a); a.click(); a.remove();
+  say('正在把选中的 ' + list.length + ' 项打包下载…');
+};
+$('bulkRm').onclick = async () => {
+  const list = [...picked];
+  const preview = list.slice(0, 5).join('、') + (list.length > 5 ? ' 等' : '');
+  if (!confirm('确定删除选中的 ' + list.length + ' 项吗？\n' + preview + '\n\n文件夹会连同里面的内容一起删除，删除后无法恢复。')) return;
+  let done = 0;
+  const failed = [];
+  for (const n of list) {
+    try { await call('/delete', { path: join(cwd, n) }); done++; picked.delete(n); } catch (err) { failed.push(n + '（' + err.message + '）'); }
+  }
+  await load(cwd);
+  if (failed.length) say('删除了 ' + done + ' 项，' + failed.length + ' 项没删掉：' + failed.join('；'), 'err'); else say('已删除 ' + done + ' 项', 'ok');
+};
+$('reBtn').onclick = () => load(cwd).then(() => say('已刷新'));
+$('zipBtn').onclick = () => download(cwd);
+$('mkBtn').onclick = async () => {
+  const name = prompt('新文件夹的名字：');
+  if (!name) return;
+  try { await call('/mkdir', { path: cwd, name }); say('已新建文件夹 ' + name, 'ok'); await load(cwd); } catch (err) { say(err.message, 'err'); }
+};
+$('newBtn').onclick = async () => {
+  const name = prompt('新文件的名字（带上后缀，例如 笔记.md）：');
+  if (!name) return;
+  try {
+    const p = join(cwd, name);
+    const res = await fetch(API + '/write?' + new URLSearchParams({ path: p, create: '1' }), { method: 'POST', headers: { 'X-Files-Action': '1' }, body: '' });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(j.error || '新建失败（' + res.status + '）');
+    await load(cwd);
+    await openFile(p);
+  } catch (err) { say(err.message, 'err'); }
+};
+function uploadOne(file, dir, done, total) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', API + '/upload?' + new URLSearchParams({ path: dir, name: file.name }));
+    xhr.setRequestHeader('X-Files-Action', '1');
+    xhr.upload.onprogress = (ev) => {
+      if (!ev.lengthComputable) return;
+      $('msg').className = 'msg';
+      $('msg').innerHTML = '正在上传 ' + esc(file.name) + '（' + (done + 1) + '/' + total + '）<progress max="1" value="' + (ev.loaded / ev.total) + '"></progress>' + Math.round(ev.loaded / ev.total * 100) + '%';
+    };
+    xhr.onload = () => { if (xhr.status === 200) return resolve(); let m = '上传失败（' + xhr.status + '）'; try { m = JSON.parse(xhr.responseText).error || m; } catch (e) {} reject(new Error(file.name + '：' + m)); };
+    xhr.onerror = () => reject(new Error(file.name + '：网络中断'));
+    xhr.send(file);
+  });
+}
+async function uploadAll(files) {
+  files = [...files];
+  if (!files.length) return;
+  // 网站前面的 Cloudflare 不放行超过 100 MB 的单次上传，先在这里拦住并说明，免得传到一半失败。
+  const big = files.find((f) => f.size > 95 * 1024 * 1024);
+  if (big) { say(big.name + ' 超过 95 MB，网页上传会被 Cloudflare 拦下。大文件请改用 SFTP，或让 Agent 自己从网上下载。', 'err'); return; }
+  const dir = cwd;
+  try {
+    for (let i = 0; i < files.length; i++) await uploadOne(files[i], dir, i, files.length);
+    say('已上传 ' + files.length + ' 个文件', 'ok');
+  } catch (err) { say(err.message, 'err'); }
+  await load(cwd);
+}
+$('upBtn').onclick = () => $('picker').click();
+$('picker').onchange = () => { uploadAll($('picker').files); $('picker').value = ''; };
+let depth = 0;
+const overEditor = (e) => Boolean(e.target && e.target.closest && e.target.closest('#right'));
+addEventListener('dragenter', (e) => { if (overEditor(e)) return; if ([...e.dataTransfer.types].includes('Files')) { depth++; document.body.classList.add('dragging'); } });
+addEventListener('dragleave', () => { depth = Math.max(0, depth - 1); if (!depth) document.body.classList.remove('dragging'); });
+addEventListener('dragover', (e) => e.preventDefault());
+addEventListener('drop', (e) => { e.preventDefault(); depth = 0; document.body.classList.remove('dragging'); if (overEditor(e)) return; uploadAll([...e.dataTransfer.files].filter((f) => f.size || f.type)); });
+
+// ---- Markdown 预览（和任务页用的是同一套：先全部转义，再只生成认识的几种标签；链接只接受 http/https）----
+function inline(s) {
+  const keep = [];
+  const stash = (h) => { keep.push(h); return '\u0000' + (keep.length - 1) + '\u0000'; };
+  const link = (url, text) => stash('<a href="' + url + '" title="' + url + '" target="_blank" rel="noopener noreferrer">' + text + '</a>');
+  s = esc(s);
+  s = s.replace(/`([^`\n]+)`/g, (m, c) => stash('<code>' + c + '</code>'));
+  s = s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (m, t, u) => link(u, t));
+  s = s.replace(/https?:\/\/[^\s<>"'）】，。；、]+[^\s<>"'）】，。；、.,;:!?)\]]/g, (u) => link(u, u));
+  s = s.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replace(/(^|[^*\w])\*([^*\s][^*\n]*)\*(?![*\w])/g, '$1<i>$2</i>');
+  return s.replace(/\u0000(\d+)\u0000/g, (m, i) => keep[i]);
+}
+function md(src) {
+  const lines = String(src || '').replace(/\r/g, '').split('\n');
+  const out = [];
+  let para = [], i = 0;
+  const flush = () => { if (para.length) { out.push('<p>' + para.map(inline).join('<br>') + '</p>'); para = []; } };
+  const cells = (row) => row.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+  const take = (re) => { const items = []; while (i < lines.length && re.test(lines[i])) items.push(lines[i++].replace(re, '')); return items; };
+  if (lines[0] === '---') { // 文件开头的 --- 元数据块（技能文件常见）按代码块显示
+    const end = lines.indexOf('---', 1);
+    if (end > 0) { out.push('<pre class="code">' + esc(lines.slice(1, end).join('\n')) + '</pre>'); i = end + 1; }
+  }
+  while (i < lines.length) {
+    const line = lines[i];
+    let m;
+    if (/^\s*```/.test(line)) {
+      flush();
+      const buf = [];
+      i++;
+      while (i < lines.length && !/^\s*```/.test(lines[i])) buf.push(lines[i++]);
+      i++;
+      out.push('<pre class="code">' + esc(buf.join('\n')) + '</pre>');
+    } else if (!line.trim()) { flush(); i++; }
+    else if ((m = line.match(/^\s*(#{1,6})\s+(.*)$/))) { flush(); out.push('<h4 class="h' + m[1].length + '">' + inline(m[2]) + '</h4>'); i++; }
+    else if (/^\s*([-*_])\s*\1\s*\1[-*_\s]*$/.test(line)) { flush(); out.push('<hr>'); i++; }
+    else if (/^\s*[-*+]\s+/.test(line)) { flush(); out.push('<ul>' + take(/^\s*[-*+]\s+/).map((x) => '<li>' + inline(x) + '</li>').join('') + '</ul>'); }
+    else if (/^\s*\d+[.)]\s+/.test(line)) { flush(); out.push('<ol>' + take(/^\s*\d+[.)]\s+/).map((x) => '<li>' + inline(x) + '</li>').join('') + '</ol>'); }
+    else if (/^\s*>\s?/.test(line)) { flush(); out.push('<blockquote>' + take(/^\s*>\s?/).map(inline).join('<br>') + '</blockquote>'); }
+    else if (line.includes('|') && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(lines[i + 1])) {
+      flush();
+      const head = cells(line);
+      i += 2;
+      const rows = [];
+      while (i < lines.length && lines[i].includes('|') && lines[i].trim()) rows.push(cells(lines[i++]));
+      out.push('<div class="tbl"><table><thead><tr>' + head.map((c) => '<th>' + inline(c) + '</th>').join('') + '</tr></thead><tbody>'
+        + rows.map((r) => '<tr>' + r.map((c) => '<td>' + inline(c) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>');
+    } else { para.push(line); i++; }
+  }
+  flush();
+  return out.join('');
+}
+
+// ---- 在线查看 / 编辑 ----
+let doc = null; // 当前打开的文件：{ path, name, mtime, saved（上次保存时的内容）, mode: 'text' | 'image' | 'none' }
+const isDirty = () => Boolean(doc && doc.mode === 'text' && $('editor').value !== doc.saved);
+function foot(text, cls) { $('vFoot').className = 'vfoot ' + (cls || ''); $('vFoot').textContent = text; }
+// 保存按钮始终看得清：有改动时是醒目的"保存"，没有改动时显示"已保存"（点了也没东西可存，所以是灰边的）。
+function paintDirty() {
+  const dirty = isDirty();
+  $('vDirty').hidden = !dirty;
+  $('vSave').disabled = !dirty;
+  $('vSave').textContent = dirty ? '保存' : '已保存';
+}
+function showViewer(on) {
+  $('viewer').hidden = !on;
+  $('placeholder').hidden = on;
+  document.body.classList.toggle('has-doc', on);
+  markCurrent();
+}
+// 在左边列表里把正在编辑的那个文件标出来。
+function markCurrent() {
+  for (const tr of document.querySelectorAll('tr[data-row]')) tr.classList.toggle('cur', Boolean(doc) && join(cwd, tr.dataset.row) === doc.path);
+}
+function showPart(which) { for (const id of ['editor', 'preview', 'picture', 'cant']) $(id).hidden = id !== which; }
+async function openFile(p) {
+  if (isDirty() && !confirm('当前文件有未保存的修改，确定放弃吗？')) return;
+  let info;
+  try {
+    const res = await fetch(API + '/read?' + new URLSearchParams({ path: p }));
+    info = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(info.error || '打开失败（' + res.status + '）');
+  } catch (err) { say(err.message, 'err'); return; }
+  doc = { path: info.path, name: info.name, mtime: info.mtime, saved: '', mode: 'none' };
+  store.set('open', info.path);
+  showViewer(true);
+  $('vName').textContent = info.name;
+  $('vMeta').textContent = info.path + '　' + fmtSize(info.size) + '　修改于 ' + fmtTime(info.mtime);
+  for (const id of ['vSave', 'vWrap', 'vPreview', 'vDirty']) $(id).hidden = true;
+  if (IMAGE_EXT.test(info.name) && (info.binary || info.tooBig || /\.svg$/i.test(info.name) === false)) {
+    doc.mode = 'image';
+    $('pictureImg').src = API + '/raw?' + new URLSearchParams({ path: info.path, t: String(info.mtime) });
+    showPart('picture');
+    foot('图片预览。要修改请下载后处理，或让 Agent 来改。');
+  } else if (info.tooBig || info.binary) {
+    $('cantText').textContent = info.tooBig ? '这个文件有 ' + fmtSize(info.size) + '，超过了在线查看的上限（2 MB）。' : '这不是文本文件，不能在线查看。';
+    showPart('cant');
+    foot('');
+  } else {
+    doc.mode = 'text';
+    doc.saved = info.text;
+    $('editor').value = info.text;
+    $('editor').classList.toggle('wrap', store.get('wrap') === '1');
+    $('vWrap').textContent = store.get('wrap') === '1' ? '不换行' : '自动换行';
+    $('vSave').hidden = false; $('vWrap').hidden = false;
+    $('vPreview').hidden = !/\.(md|markdown)$/i.test(info.name);
+    $('vPreview').textContent = '预览';
+    showPart('editor');
+    paintDirty();
+    foot('可以直接修改，按 Ctrl+S 或点"保存"。');
+    $('editor').focus();
+    $('editor').setSelectionRange(0, 0);
+    $('editor').scrollTop = 0;
+  }
+}
+function closeFile() {
+  if (isDirty() && !confirm('有未保存的修改，确定关闭并放弃吗？')) return;
+  doc = null;
+  store.set('open', null);
+  showViewer(false);
+  $('pictureImg').removeAttribute('src');
+  load(cwd);
+}
+async function saveFile(force) {
+  if (!doc || doc.mode !== 'text' || (!isDirty() && !force)) return;
+  const text = $('editor').value;
+  $('vSave').disabled = true;
+  foot('正在保存…');
+  try {
+    const params = { path: doc.path, mtime: String(doc.mtime) };
+    if (force) params.force = '1';
+    const res = await fetch(API + '/write?' + new URLSearchParams(params), { method: 'POST', headers: { 'X-Files-Action': '1', 'Content-Type': 'text/plain; charset=utf-8' }, body: text });
+    const j = await res.json().catch(() => ({}));
+    if (res.status === 409 && j.conflict) {
+      foot(j.error, 'err');
+      if (confirm(j.error + '。\n\n点"确定"：用你现在的内容覆盖它。\n点"取消"：先不保存（你的修改还留在编辑器里，可以复制出来，再重新打开文件看最新内容）。')) return saveFile(true);
+      paintDirty();
+      return;
+    }
+    if (!res.ok) throw new Error(j.error || '保存失败（' + res.status + '）');
+    doc.saved = text; doc.mtime = j.mtime;
+    $('vMeta').textContent = doc.path + '　' + fmtSize(j.size) + '　修改于 ' + fmtTime(j.mtime);
+    foot('已保存 ' + new Date().toLocaleTimeString('zh-CN'), 'ok');
+    load(cwd);
+  } catch (err) { foot(err.message, 'err'); }
+  paintDirty();
+}
+$('editor').addEventListener('input', paintDirty);
+$('editor').addEventListener('keydown', (e) => {
+  if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) { // Tab 键输入缩进，而不是跳到下一个按钮
+    e.preventDefault();
+    const el = $('editor'), a = el.selectionStart, b = el.selectionEnd;
+    el.setRangeText('  ', a, b, 'end');
+    paintDirty();
+  }
+});
+addEventListener('keydown', (e) => {
+  if ($('viewer').hidden) return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); saveFile(false); }
+  else if (e.key === 'Escape' && $('right').contains(document.activeElement)) { e.preventDefault(); closeFile(); }
+});
+$('vSave').onclick = () => saveFile(false);
+$('vBack').onclick = closeFile;
+$('vDownload').onclick = () => doc && download(doc.path);
+$('cantDownload').onclick = () => doc && download(doc.path);
+$('vWrap').onclick = () => {
+  const on = !$('editor').classList.contains('wrap');
+  $('editor').classList.toggle('wrap', on);
+  store.set('wrap', on ? '1' : '0');
+  $('vWrap').textContent = on ? '不换行' : '自动换行';
+};
+$('vPreview').onclick = () => {
+  const showing = !$('preview').hidden;
+  if (showing) { showPart('editor'); $('vPreview').textContent = '预览'; $('editor').focus(); }
+  else { $('previewBody').innerHTML = md($('editor').value); showPart('preview'); $('vPreview').textContent = '返回编辑'; }
+};
+addEventListener('beforeunload', (e) => { if (isDirty()) { e.preventDefault(); e.returnValue = ''; } });
+
+// 启动：先列出文件夹；上次如果开着某个文件，接着打开它（刷新页面后回到原处）。
+(async () => {
+  await load(cwd);
+  const last = store.get('open');
+  if (last) await openFile(last);
+})();
+</script>
+</body>
+</html>

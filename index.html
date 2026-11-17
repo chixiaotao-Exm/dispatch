@@ -1,0 +1,1689 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>调度台</title>
+<style>
+:root{--bg:#0d1017;--card:#151a24;--line:#263044;--text:#e8ecf3;--sub:#93a0b5;--mute:#5f6b80;--ok:#34c38f;--warn:#f0a53a;--bad:#ef5b5b;--accent:#5b9dff}
+@media (prefers-color-scheme: light){:root{--bg:#f4f5f7;--card:#fff;--line:#dde1e8;--text:#161a22;--sub:#566176;--mute:#8a94a6;--ok:#12805c;--warn:#a86a08;--bad:#c23434;--accent:#1f6fe0}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,"Microsoft YaHei",sans-serif}
+.wrap{max-width:1040px;margin:0 auto;padding:16px}
+.top{display:flex;align-items:center;gap:12px;padding-bottom:12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.top h1{font-size:16px;margin:0;font-weight:600}
+.top .right{margin-left:auto;color:var(--sub);font-size:13px;display:flex;gap:12px;align-items:center}
+button{background:transparent;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:5px 12px;font:inherit;cursor:pointer}
+button:hover{border-color:var(--accent)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--mute)}
+.dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.bad{background:var(--bad)}
+.center{display:flex;justify-content:center}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.v{width:0;height:18px;border-left:1px solid var(--line);margin:0 auto}
+.tag{text-align:center;color:var(--mute);font-size:12px}
+.boss{display:flex;gap:12px;align-items:center;min-width:300px}
+.avatar{width:38px;height:38px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600}
+.pill{margin-left:auto;border-radius:8px;padding:2px 10px;font-size:12px;border:1px solid var(--line);color:var(--sub)}
+.pill.warn{color:var(--warn);border-color:var(--warn)}.pill.bad{color:var(--bad);border-color:var(--bad)}.pill.ok{color:var(--ok);border-color:var(--ok)}
+.ceo{min-width:340px}
+.sub{color:var(--sub);font-size:13px}
+.todo{margin:6px 0 0;padding:0;list-style:none;font-size:13px}
+.todo li{padding:2px 0}.todo .warning{color:var(--warn)}.todo .danger{color:var(--bad)}
+.bar{margin:0 25%;border-top:1px solid var(--line)}
+.cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+@media (max-width:720px){.cols{grid-template-columns:minmax(0,1fr)}.bar{display:none}}
+.head{display:flex;align-items:center;gap:8px;color:var(--sub)}
+.head .dot{margin-left:auto}
+.big{font-size:24px;font-weight:600}
+.rows{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.row{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 12px}
+.row .l1{display:flex;align-items:center;gap:8px}
+.row .l1 a{color:var(--text);text-decoration:none;font-weight:500}
+.row .l1 .ms{margin-left:auto;font-variant-numeric:tabular-nums}
+.row .l2{color:var(--mute);font-size:12px;display:flex;gap:12px;flex-wrap:wrap;margin-top:2px}
+.hist{display:flex;gap:2px;margin-top:6px}
+.hist i{flex:1;max-width:8px;height:10px;border-radius:2px;background:var(--ok)}
+.hist i.d{background:var(--bad)}
+.meter{height:6px;border-radius:3px;background:var(--line);overflow:hidden;margin-top:4px}
+.meter b{display:block;height:100%;background:var(--accent)}
+code{background:var(--line);border-radius:4px;padding:1px 5px;font-size:12px}
+
+/* 动态流光：方块边框上有一段光沿边缘转圈，连接线上有光顺着汇报方向流动。 */
+@property --a{syntax:'<angle>';inherits:false;initial-value:0deg}
+:root{--glow:var(--accent);--glow2:#6fe7ff}
+@media (prefers-color-scheme: light){:root{--glow2:#00a3c4}}
+.card,.row{
+  border:1px solid transparent;
+  background:linear-gradient(var(--card),var(--card)) padding-box,
+    conic-gradient(from var(--a),var(--line) 0 60%,var(--glow) 78%,var(--glow2) 88%,var(--line) 96%) border-box;
+  animation:spin 5s linear infinite;
+}
+.row{animation-duration:7s}
+.ceo{animation-duration:3s}
+.row.bad{--glow:var(--bad);--glow2:var(--bad);animation-duration:2s}
+.cols>div:nth-child(2) .card,.cols>div:nth-child(2) .row{animation-delay:-1.5s}
+.cols>div:nth-child(3) .card,.cols>div:nth-child(3) .row{animation-delay:-3s}
+.cols>div:nth-child(4) .card,.cols>div:nth-child(4) .row{animation-delay:-4.5s}
+@keyframes spin{to{--a:360deg}}
+
+/* 每条连接线有自己的颜色：你↔CEO 金色，CEO↔网站 Agent 青色，CEO↔服务器 Agent 紫色，主干蓝色。 */
+:root{--c-boss:#ffb547;--c-site:#4fe3ff;--c-srv:#b48cff;--c-trunk:var(--accent)}
+@media (prefers-color-scheme: light){:root{--c-boss:#c77700;--c-site:#008fb0;--c-srv:#7a4de0}}
+.l-boss{--lc:var(--c-boss)}.l-site{--lc:var(--c-site)}.l-srv{--lc:var(--c-srv)}.l-trunk{--lc:var(--c-trunk)}
+.bar::before{--lc:var(--c-site)}.bar::after{--lc:var(--c-srv)}
+.boss{--glow:var(--c-boss);--glow2:var(--c-boss)}
+/* 每一列按它顶部那条线的类型取颜色，和列的先后顺序无关。 */
+.cols>div:has(>.l-site){--glow:var(--c-site);--glow2:var(--c-site)}
+.cols>div:has(>.l-music){--glow:var(--c-music);--glow2:var(--c-music)}
+.cols>div:has(>.l-relay){--glow:var(--c-relay);--glow2:var(--c-relay)}
+.cols>div:has(>.l-srv){--glow:var(--c-srv);--glow2:var(--c-srv)}
+:root{--c-relay:#ff7ab8;--c-music:#6dffb3}
+@media (prefers-color-scheme: light){:root{--c-relay:#c2337a;--c-music:#0a9a5c}}
+.l-relay{--lc:var(--c-relay)}.l-music{--lc:var(--c-music)}
+
+.v{width:2px;height:22px;border:0;border-radius:1px;--d:22px;
+  background:linear-gradient(180deg,var(--line) 0%,var(--lc,var(--glow2)) 50%,var(--line) 100%) 0 0/100% 22px repeat-y;
+  animation:flowY 1.4s linear infinite}
+@keyframes flowY{to{background-position:0 var(--d)}}
+.bar{height:2px;border:0;display:flex}
+.bar::before,.bar::after{content:"";flex:1;--d:90px;
+  background:linear-gradient(90deg,var(--line) 0%,var(--lc) 50%,var(--line) 100%) 0 0/90px 100% repeat-x;
+  animation:flowX 1.8s linear infinite}
+.bar::before{animation-direction:reverse}
+@keyframes flowX{to{background-position:var(--d) 0}}
+.tag{transition:color .2s}
+
+/* 树状连接线：Agent 卡片左下方引出一根主干，每个明细行一条分支。 */
+/* 主干是一整根线（高度由脚本算到最后一行的中点），所以流光能连续地从上流到下；每行一条横向分支。 */
+.cols>div{--tree:color-mix(in srgb,var(--glow) 35%,var(--line))}
+.rows{position:relative;padding-left:40px;gap:14px;margin-top:16px}
+.rows::before{content:"";position:absolute;left:14px;top:-16px;width:2px;height:calc(var(--trunk-h,0px) + 16px);border-radius:1px;pointer-events:none;--d:26px;
+  background:linear-gradient(180deg,var(--tree) 0%,var(--glow) 50%,var(--tree) 100%) 0 0/100% 26px repeat-y;
+  animation:flowY 1.6s linear infinite}
+.row{position:relative}
+.row::before{content:"";position:absolute;left:-25px;top:calc(50% - 1px);width:24px;height:2px;border-radius:1px;pointer-events:none;--d:24px;
+  background:linear-gradient(90deg,var(--tree) 0%,var(--glow) 50%,var(--tree) 100%) 0 0/24px 100% repeat-x;
+  animation:flowX 1.6s linear infinite}
+
+/* CEO Agent 左右两侧的线路 Agent。中间一格是 CEO Agent（始终居中），两侧各占剩下的一半，卡片贴着 CEO Agent。 */
+:root{--c-pojia:#ff6b4a;--c-qiye:#cbd5e1}
+@media (prefers-color-scheme: light){:root{--c-pojia:#b93815;--c-qiye:#475569}}
+.ceo-row{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center}
+.side{display:flex;align-items:center;min-width:0}
+.side.left{justify-content:flex-end;--glow:var(--c-pojia);--glow2:var(--c-pojia)}
+.side.right{justify-content:flex-start;--glow:var(--c-qiye);--glow2:var(--c-qiye)}
+.side.off{visibility:hidden}
+.card.line{width:360px;max-width:100%;min-width:0;animation-duration:4s}
+.side .h{flex:0 0 64px;height:2px;border-radius:1px;--d:64px;
+  background:linear-gradient(90deg,var(--line) 0%,var(--glow) 50%,var(--line) 100%) 0 0/64px 100% repeat-x;
+  animation:flowX 1.5s linear infinite}
+.side.right .h{animation-direction:reverse}
+.card.line{position:relative}
+.card.line::after{content:"";position:absolute;left:calc(50% - 1px);top:100%;width:2px;height:var(--drop,0px);border-radius:1px;pointer-events:none;--d:22px;
+  background:linear-gradient(180deg,var(--line) 0%,var(--glow) 50%,var(--line) 100%) 0 0/100% 22px repeat-y;
+  animation:flowY 1.4s linear infinite}
+.card.line .up-v,.card.line .up-h{position:absolute;border-radius:1px;pointer-events:none;display:block}
+.card.line .up-v{left:calc(50% - 1px);bottom:100%;width:2px;height:var(--rise,0px);--d:22px;
+  background:linear-gradient(180deg,var(--line) 0%,var(--glow) 50%,var(--line) 100%) 0 0/100% 22px repeat-y;
+  animation:flowY 1.4s linear infinite reverse}
+.card.line .up-h{bottom:calc(100% + var(--rise,0px) - 2px);height:2px;width:var(--reach,0px);--d:64px;
+  background:linear-gradient(90deg,var(--line) 0%,var(--glow) 50%,var(--line) 100%) 0 0/64px 100% repeat-x;
+  animation:flowX 1.5s linear infinite}
+.side.left .up-h{left:calc(50% - 1px)}
+.side.right .up-h{right:calc(50% - 1px);animation-direction:reverse}
+@media (prefers-reduced-motion: reduce){.card.line::after,.card.line .up-v,.card.line .up-h{animation:none!important}}
+.brief-text.small{font-size:13px;line-height:1.6;margin-top:6px;color:var(--text)}
+.brief-text.small.err{color:var(--warn)}
+@media (max-width:899px){.ceo-row{grid-template-columns:minmax(0,1fr);row-gap:10px}.ceo-row .ceo{order:-1;justify-self:center}.side{justify-content:center!important}.side .h{display:none}.side.off{display:none}}
+@media (prefers-reduced-motion: reduce){.side .h{animation:none!important}}
+
+/* CEO Agent 的简报 */
+.ceo{max-width:560px}
+.brief{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+.brief-text{font-size:14px;line-height:1.7;color:var(--text);white-space:pre-wrap}
+.brief-meta{margin-top:6px;font-size:12px;color:var(--mute)}
+.brief-meta.err{color:var(--warn)}
+.ms[title]{cursor:help;border-bottom:1px dotted var(--mute)}
+
+/* 服务器行：第一行只放主机名和运行时间，永不换行，主机名太长就省略；IP 放到第二行。 */
+.row .l1.one{flex-wrap:nowrap}
+.dot{flex:none}
+.host{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.chip{flex:none;white-space:nowrap}
+.chip.plan{color:var(--sub);border-color:var(--line);background:var(--line)}
+.up{margin-left:auto;flex:none;white-space:nowrap;font-size:12px;color:var(--sub)}
+.row .l2{align-items:center;row-gap:4px;margin-top:6px}
+.ip{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--sub);background:var(--line);border-radius:5px;padding:1px 6px}
+.chip{font-size:11px;color:var(--c-srv);border:1px solid var(--c-srv);border-radius:5px;padding:0 5px}
+.mini{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px 10px;align-items:center;margin-top:12px;font-size:12px;color:var(--sub)}
+.mini .meter{margin:0}
+.mini .val{color:var(--text);font-variant-numeric:tabular-nums;text-align:right}
+.meter b.hot{background:var(--warn)}
+details.srv{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+details.srv summary{cursor:pointer;color:var(--sub);font-size:12px;user-select:none}
+details.srv summary:hover{color:var(--text)}
+.kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 16px;margin:12px 0 0;font-size:12px}
+.kv dt{color:var(--mute);white-space:nowrap}
+.kv dd{margin:0;color:var(--text);overflow-wrap:anywhere}
+.kv dd .meter{margin-top:4px}
+
+/* 留白 */
+/* 整页默认按 75% 显示（相当于浏览器缩放到 75% 的效果），一屏能看到更多内容。改 --zoom 即可调整。 */
+:root{--zoom:.75}
+.wrap{max-width:1960px;padding:20px;zoom:var(--zoom)}
+/* 四列：横线从第一列中点连到第四列中点，主干从正中间接下来。屏幕不够宽时改成两列，横线隐藏。
+   断点按缩放后的实际宽度换算过（窗口宽度 ÷ 0.75 才是页面内部的可用宽度）。 */
+.cols{--gap:24px;gap:var(--gap);grid-template-columns:minmax(0,1fr)}
+.bar{display:none}
+/* 七列。窗口不够宽时折成四列或两列，折行后顶部那条横线对不上，就隐藏。 */
+@media (min-width:1430px){.cols{grid-template-columns:repeat(8,minmax(0,1fr))}.bar{display:flex}}
+@media (min-width:900px) and (max-width:1429px){.cols{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media (min-width:560px) and (max-width:899px){.cols{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* 五列：横线两端各缩进半列的宽度。列宽 = (100% - 4 个间距) / 5，半列就是再除以 2。 */
+.bar{margin:0 calc((100% - 168px) / 16)}
+.wrap{max-width:2900px}
+.cols>div:has(>.l-store){--glow:var(--c-store);--glow2:var(--c-store)}
+.cols>div:has(>.l-auto){--glow:var(--c-auto);--glow2:var(--c-auto)}
+:root{--c-store:#c6f24e;--c-auto:#e879f9}
+@media (prefers-color-scheme: light){:root{--c-store:#5c7a00;--c-auto:#a21caf}}
+.l-store{--lc:var(--c-store)}.l-auto{--lc:var(--c-auto)}
+:root{--c-bot:#22d3ee}
+@media (prefers-color-scheme: light){:root{--c-bot:#0e7490}}
+.cols>div:has(>.l-bot){--glow:var(--c-bot);--glow2:var(--c-bot)}
+.l-bot{--lc:var(--c-bot)}
+.cols>div:nth-child(8) .card,.cols>div:nth-child(8) .row{animation-delay:-5s}
+.botshot{display:block;width:100%;border-radius:8px;border:1px solid var(--line);margin-top:8px;cursor:pointer;aspect-ratio:16/10;object-fit:cover;background:#000}
+.cols>div:nth-child(6) .card,.cols>div:nth-child(6) .row{animation-delay:-2s}
+.cols>div:nth-child(7) .card,.cols>div:nth-child(7) .row{animation-delay:-3.5s}
+.cols .btn{border-color:var(--glow);color:var(--glow)}
+.cols .btn:hover{background:color-mix(in srgb,var(--glow) 15%,transparent)}
+.cols>div:has(>.l-agent){--glow:var(--c-agent);--glow2:var(--c-agent)}
+:root{--c-agent:#ff9a4d}
+@media (prefers-color-scheme: light){:root{--c-agent:#c25e00}}
+.l-agent{--lc:var(--c-agent)}
+.cols>div:nth-child(5) .card,.cols>div:nth-child(5) .row{animation-delay:-5.5s}
+.btn{display:inline-block;border:1px solid var(--c-agent);color:var(--c-agent);border-radius:8px;padding:4px 12px;font-size:13px;text-decoration:none;white-space:nowrap}
+.btn:hover{background:color-mix(in srgb,var(--c-agent) 15%,transparent)}
+.mono{font-family:ui-monospace,Consolas,monospace;user-select:all}
+button.btn{background:transparent;font:inherit;font-size:13px;cursor:pointer}
+
+/* 内嵌终端：固定在页面底部的面板，不随整页缩放。开关状态和高度记在浏览器里，刷新后自动恢复；
+   会话本身保存在服务器上（tmux），所以刷新、关页面、换电脑都不会丢。 */
+.term{position:fixed;left:0;right:0;bottom:0;height:var(--term-h,56vh);z-index:50;display:flex;flex-direction:column;
+  background:#0d1017;border-top:2px solid var(--c-agent);box-shadow:0 -12px 40px rgba(0,0,0,.45)}
+.term[hidden]{display:none}
+.term.max{top:0;height:auto;border-top:0}
+.term-bar{display:flex;align-items:center;gap:10px;padding:6px 12px;background:var(--card);border-bottom:1px solid var(--line);font-size:13px;color:var(--text);flex:none}
+.term-bar .hint{color:var(--mute);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.term-bar .sp{flex:1}
+.term-bar button{padding:3px 10px;font-size:12px;white-space:nowrap}
+.term-grip{position:absolute;left:0;right:0;top:-5px;height:10px;cursor:ns-resize}
+.term.max .term-grip{display:none}
+.term iframe{flex:1;width:100%;border:0;background:#0d1017}
+.term iframe[hidden]{display:none}
+.badge{display:inline-block;min-width:16px;margin-left:6px;padding:0 5px;border-radius:8px;background:var(--warn);color:#1a1204;font-size:11px;font-weight:700;line-height:16px;text-align:center}
+.badge[hidden]{display:none}
+/* 有服务器命令等批准时，页面顶部正中的提醒条。 */
+.ops-alert{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:10px;max-width:calc(100vw - 32px);
+  background:var(--card);border:1px solid var(--warn);border-radius:12px;padding:8px 10px 8px 14px;font-size:14px;box-shadow:0 8px 30px rgba(0,0,0,.5);animation:nudge 1.6s ease-in-out infinite}
+.ops-alert[hidden]{display:none}
+#bossCard{cursor:pointer}
+#bossCard:focus-visible{outline:2px solid var(--warn);outline-offset:2px}
+.todo-back{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.45);display:flex;justify-content:center;align-items:flex-start;padding:84px 16px 16px}
+.todo-back[hidden]{display:none}
+.todo-pop{width:min(560px,100%);max-height:calc(100vh - 120px);overflow:auto;background:var(--card,#111827);border:1px solid var(--line);border-radius:14px;padding:16px 18px;box-shadow:0 20px 60px rgba(0,0,0,.45)}
+.todo-pop h3{margin:0 0 4px;font-size:15px;display:flex;align-items:center}
+.todo-pop h3 button{margin-left:auto}
+.todo-pop .grp{margin:14px 0 6px;font-size:12px;color:var(--sub)}
+.todo-pop .it{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-top:1px solid var(--line);font-size:13px;line-height:1.5}
+.todo-pop .it .dot{margin-top:6px;flex:none}
+.todo-pop .it .tx{flex:1;min-width:0;overflow-wrap:anywhere}
+.todo-pop .it .tx small{display:block;color:var(--sub);font-family:ui-monospace,Consolas,monospace;font-size:12px;margin-top:2px;max-height:3.2em;overflow:hidden}
+.todo-pop .it .btn{flex:none}
+.todo-pop .none{padding:14px 0 4px;color:var(--sub);font-size:13px}
+.ops-alert .btn{border-color:var(--warn);color:var(--warn)}
+@keyframes nudge{50%{box-shadow:0 8px 30px rgba(0,0,0,.5),0 0 0 4px color-mix(in srgb,var(--warn) 30%,transparent)}}
+@media (prefers-reduced-motion: reduce){.ops-alert{animation:none}}
+.tabs{display:flex;gap:2px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:2px}
+.term-bar .tabs .tab{border:0;border-radius:6px;padding:3px 14px;color:var(--sub);background:transparent}
+.term-bar .tabs .tab.on{background:var(--c-agent);color:#1a0f04;font-weight:600}
+.term.drag iframe{pointer-events:none}
+body.term-open{padding-bottom:var(--term-h,56vh)}
+.bar::before,.bar::after{--lc:var(--c-trunk)}
+.row .l1{flex-wrap:wrap}
+.song{display:block;flex:1 1 100%;min-width:0;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stat{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}
+.stat small{font-size:13px;font-weight:400;color:var(--sub);margin-left:4px}
+.card{padding:16px 18px}
+.row{padding:12px 16px;border-radius:10px}
+.row .l2{margin-top:4px}
+.hist{margin-top:10px}
+.meter{margin-top:8px}
+
+/* 通信特效：一个小光点沿着连接线从发送方移动到接收方，到达时接收方闪一下。 */
+.wrap{position:relative}
+/* Claude 额度看板：左上角的空位 */
+.usage{position:absolute;left:20px;top:78px;width:440px;z-index:1}
+.usage .head{display:flex;align-items:center;gap:8px}
+.usage .head strong{font-weight:600}
+.usage .plan{font-size:12px;border:1px solid var(--c-agent);color:var(--c-agent);border-radius:6px;padding:0 7px}
+.usage .u{margin-top:12px}
+.usage .u .t{display:flex;align-items:baseline;gap:8px;font-size:13px;color:var(--sub)}
+.usage .u .t b{margin-left:auto;font-size:18px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
+.usage .track{height:8px;border-radius:999px;background:var(--bg);border:1px solid var(--line);overflow:hidden;margin-top:5px}
+.usage .fill{height:100%;border-radius:999px;background:var(--ok);transition:width .6s}
+.usage .fill.warn{background:var(--warn)}.usage .fill.bad{background:var(--bad)}
+.usage .r{font-size:12px;color:var(--mute);margin-top:3px}
+.usage .foot{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:12px;color:var(--mute)}
+.usage .foot button{margin-left:auto;background:transparent;color:var(--sub);border:1px solid var(--line);border-radius:6px;padding:1px 10px;font:inherit;font-size:12px;cursor:pointer}
+.usage .foot button:hover{border-color:var(--sub);color:var(--text)}
+.usage .foot button:disabled{opacity:.5;cursor:default}
+.usage .err{color:var(--warn)}
+/* 和 CEO Agent 通话：直接在 CEO Agent 卡片里，不弹窗口 */
+.voice-row{display:flex;justify-content:center;align-items:center;gap:10px;margin-top:10px}
+.voice-open{background:transparent;color:var(--text);border:1px solid var(--sub);border-radius:999px;padding:6px 18px;font:inherit;font-size:13px;cursor:pointer}
+.voice-open:hover{border-color:var(--text)}
+.voice-open i{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:8px;vertical-align:middle}
+.voice-open.on{border-color:var(--bad);color:var(--bad)}
+.voice-open.on i{background:var(--bad)}
+.voice-hist{background:transparent;border:0;color:var(--sub);font:inherit;font-size:12px;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.voice-state{margin-top:10px;font-size:13px;color:var(--text);display:flex;justify-content:center;align-items:center;gap:8px}
+.voice-state[hidden]{display:none}
+.voice-state .lv{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--sub);transition:transform .08s linear}
+.voice-state.listen .lv{background:var(--ok)}
+.voice-state.think .lv{background:var(--warn);animation:voicePulse 1s ease-in-out infinite}
+.voice-state.speak .lv{background:var(--c-agent);animation:voicePulse .6s ease-in-out infinite}
+@keyframes voicePulse{50%{transform:scale(1.7);opacity:.6}}
+@media (prefers-reduced-motion:reduce){.voice-state .lv{animation:none!important;transition:none}}
+.voice-tip{font-size:12px;color:var(--sub);margin-top:6px;text-align:center}
+.voice-tip:empty{display:none}
+.voice-tip.err{color:var(--bad)}
+.voice-box{margin-top:10px;border-top:1px solid var(--line);padding-top:6px;text-align:left}
+.voice-box[hidden]{display:none}
+.voice-list{max-height:240px;overflow:auto;padding-right:4px;scrollbar-width:thin}
+.vm{margin:8px 0;display:flex;flex-direction:column;align-items:flex-start}
+.vm.me{align-items:flex-end}
+.vm .who{font-size:12px;color:var(--sub);margin-bottom:3px}
+.vm .bub{max-width:90%;border:1px solid var(--line);border-radius:12px;padding:6px 10px;font-size:13px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}
+.vm.me .bub{border-color:var(--sub)}
+.vm .bub.dim{color:var(--sub)}
+.vm .bub.res{max-height:160px;overflow:auto;scrollbar-width:thin}
+.vm .bub small{display:block;margin-top:6px;padding-top:6px;border-top:1px dashed var(--line);color:var(--sub);font-size:12px}
+.vm .st{font-size:12px;color:var(--warn);margin-top:4px}
+.vm .st.ok{color:var(--ok)}.vm .st.bad{color:var(--bad)}
+.vm .go{margin-top:6px}
+.voice-none{color:var(--sub);font-size:13px;line-height:1.7;padding:8px 2px}
+.voice-bar{display:flex;gap:8px;align-items:center;margin-top:6px}
+.voice-bar input{flex:1;min-width:0;background:transparent;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:5px 8px;font:inherit;font-size:13px}
+.voice-bar button{flex:none;background:transparent;border:0;color:var(--sub);font:inherit;font-size:12px;cursor:pointer}
+/* 右上角：CEO Agent 做过的事（和左上角的额度看板对称） */
+.ceolog{position:absolute;right:20px;top:78px;width:440px;z-index:1}
+.ceolog .head{display:flex;align-items:center;gap:8px}
+.ceolog .head strong{font-weight:600}
+.ceolog .head small{margin-left:auto;color:var(--mute);font-size:12px}
+.ceolog .list{margin-top:8px;max-height:232px;overflow:auto;scrollbar-width:thin}
+.ceolog .it{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;padding:7px 0;border-top:1px solid var(--line);font-size:13px;line-height:1.5}
+.ceolog .it:first-child{border-top:0}
+.ceolog .tm{color:var(--mute);font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.ceolog .tx{min-width:0;overflow-wrap:anywhere}
+.ceolog .tx b{font-weight:600}
+.ceolog .tx .v-allow{color:var(--ok)}.ceolog .tx .v-deny{color:var(--bad)}.ceolog .tx .v-ask,.ceolog .tx .v-fallback{color:var(--warn)}.ceolog .tx .v-brief{color:var(--sub)}
+.ceolog .why{grid-column:2;color:var(--sub);font-size:12px;overflow-wrap:anywhere}
+.ceolog .what{color:var(--sub)}
+.ceolog .none{color:var(--mute);font-size:13px;padding:10px 0 2px}
+.ceolog .tabs{display:flex;gap:6px;margin-left:auto}
+.ceolog .foot{font-size:12px;color:var(--mute);margin-top:8px}
+.ceolog .foot:empty{display:none}
+.ceolog .tabs button{background:transparent;color:var(--sub);border:1px solid var(--line);border-radius:6px;padding:0 8px;font:inherit;font-size:12px;cursor:pointer}
+.ceolog .tabs button.on{color:var(--text);border-color:var(--sub)}
+@media (max-width:1500px){.ceolog{position:static;width:auto;max-width:520px;margin:14px auto 0}}
+@media (max-width:1500px){.usage{position:static;width:auto;max-width:520px;margin:14px auto 0}}
+.pkt{--sz:10px;position:absolute;left:calc(var(--sz) / -2);top:calc(var(--sz) / -2);width:var(--sz);height:var(--sz);border-radius:50%;background:#fff;pointer-events:none;z-index:5;
+  box-shadow:0 0 6px 2px var(--pc),0 0 18px 6px var(--pc)}
+.pkt.t1{opacity:.55}.pkt.t2{opacity:.3}
+.card,.row{transition:box-shadow .35s}
+.hit{box-shadow:0 0 0 1px var(--pc),0 0 22px 2px var(--pc)}
+@media (prefers-reduced-motion: reduce){.card,.row,.v,.bar::before,.bar::after,.rows::before,.row::before{animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap" id="wrap">
+  <div class="top">
+    <h1>调度台</h1>
+    <span class="sub">网站与服务器监控</span>
+    <div class="right">
+      <span id="onduty"></span>
+      <span id="clock"></span>
+      <button id="refresh">立即巡视</button>
+      <a href="/logout" style="color:var(--mute);text-decoration:none">退出</a>
+    </div>
+  </div>
+
+  <div class="card ceolog" id="ceoLogCard" hidden>
+    <div class="head"><strong>CEO Agent 做过的事</strong><span class="tabs"><button data-ceof="act" class="on">审批</button><button data-ceof="all">全部</button></span></div>
+    <div class="list" id="ceoLogList"></div>
+    <div class="foot" id="ceoLogCount"></div>
+  </div>
+  <div class="card usage" id="usageCard" hidden>
+    <div class="head"><strong>Claude 额度</strong><span class="plan" id="usagePlan" hidden></span><span class="dot" id="usageDot" style="margin-left:auto"></span></div>
+    <div id="usageRows"></div>
+    <div class="foot"><span id="usageAt"></span><button id="usageRefresh">刷新</button></div>
+  </div>
+  <div class="center" style="padding-top:18px">
+    <div class="card boss" id="bossCard" role="button" tabindex="0" title="点开看看是哪些事在等你">
+      <div class="avatar">站</div>
+      <div><div style="font-weight:600">站长</div><div class="sub">创始人 · 拍板定方向</div></div>
+      <span class="pill" id="todoPill">加载中</span>
+    </div>
+  </div>
+  <div class="v l-boss"></div>
+  <div class="tag t-boss" id="reportTag">↑ 有异常才找你</div>
+  <div class="v l-boss"></div>
+  <div class="ceo-row">
+    <div class="side left off" id="lineLeft">
+      <div class="card line" id="lineLeftCard">
+        <div class="head"><strong id="lineLeftName" style="color:var(--text)"></strong><span class="dot" id="lineLeftDot"></span></div>
+        <div class="sub" id="lineLeftMeta"></div>
+        <div class="brief-text small" id="lineLeftText"></div>
+        <i class="up-v"></i><i class="up-h"></i>
+      </div>
+      <div class="h"></div>
+    </div>
+    <div class="card ceo" id="ceoCard">
+      <div class="head"><strong style="color:var(--text)">CEO Agent</strong><span class="dot" id="ceoDot"></span></div>
+      <div class="sub" id="ceoLine">正在进行第一轮巡视…</div>
+      <div class="voice-row"><button class="voice-open" id="voiceOpen" title="像打电话一样和 CEO Agent 说话：你说完它会自动接话，并用语音回答"><i></i><span id="voiceOpenText">开始通话</span></button><button class="voice-hist" id="voiceHist">通话记录</button></div>
+      <div class="voice-state" id="voiceState" role="status" hidden><span class="lv" id="voiceLv"></span><span id="voiceStateText"></span></div>
+      <div class="voice-tip" id="voiceTip"></div>
+      <div class="voice-box" id="voiceBox" hidden>
+        <div class="voice-list" id="voiceList"></div>
+        <div class="voice-bar"><input id="voiceText" aria-label="打字发给 CEO Agent" placeholder="不方便说话时也可以打字，回车发送"><button id="voiceClear">清空记录</button></div>
+      </div>
+      <ul class="todo" id="todoList"></ul>
+      <div class="brief" id="brief" hidden>
+        <div class="brief-text" id="briefText"></div>
+        <div class="brief-meta" id="briefMeta"></div>
+      </div>
+    </div>
+    <div class="side right off" id="lineRight">
+      <div class="h"></div>
+      <div class="card line" id="lineRightCard">
+        <div class="head"><strong id="lineRightName" style="color:var(--text)"></strong><span class="dot" id="lineRightDot"></span></div>
+        <div class="sub" id="lineRightMeta"></div>
+        <div class="brief-text small" id="lineRightText"></div>
+        <i class="up-v"></i><i class="up-h"></i>
+      </div>
+    </div>
+  </div>
+  <div class="v l-trunk"></div>
+  <div class="bar" id="bar"></div>
+
+  <div class="cols">
+    <div>
+      <div class="v l-site"></div>
+      <div class="tag t-site" id="siteTag">↓ 定时巡检</div>
+      <div class="card" id="siteCard">
+        <div class="head">网站监控 Agent<span class="dot" id="siteDot"></span></div>
+        <div class="big" id="siteBig">–</div>
+        <div class="sub">网站正常</div>
+      </div>
+      <div class="rows" id="siteRows"></div>
+    </div>
+    <div>
+      <div class="v l-music"></div>
+      <div class="tag t-music" id="musicTag">↓ 定时巡检</div>
+      <div class="card" id="musicCard">
+        <div class="head">音乐机器人 Agent<span class="dot" id="musicDot"></span></div>
+        <div class="big" id="musicBig">–</div>
+        <div class="sub" id="musicSub"></div>
+      </div>
+      <div class="rows" id="musicRows"></div>
+    </div>
+    <div>
+      <div class="v l-auto"></div>
+      <div class="tag t-auto" id="autoTag">↓ 到点或告警时派活</div>
+      <div class="card" id="autoCard">
+        <div class="head">自动化 Agent<span class="dot" id="autoDot"></span></div>
+        <div class="big" id="autoBig">–</div>
+        <div class="sub" id="autoSub"></div>
+      </div>
+      <div class="rows" id="autoRows"></div>
+    </div>
+    <div>
+      <div class="v l-agent"></div>
+      <div class="tag t-agent" id="agentTag">↓ 待命</div>
+      <div class="card" id="agentCard">
+        <div class="head">专用 Agent<span class="dot" id="agentDot"></span></div>
+        <div class="big" id="agentBig">–</div>
+        <div class="sub" id="agentSub"></div>
+      </div>
+      <div class="rows" id="agentRows"></div>
+    </div>
+    <div>
+      <div class="v l-bot"></div>
+      <div class="tag t-bot" id="botTag">↓ 待命</div>
+      <div class="card" id="botCard">
+        <div class="head">Bot<span class="dot" id="botDot"></span></div>
+        <div class="big" id="botBig">–</div>
+        <div class="sub" id="botSub"></div>
+      </div>
+      <div class="rows" id="botRows"></div>
+    </div>
+    <div>
+      <div class="v l-store"></div>
+      <div class="tag t-store">↓ 资料与能力</div>
+      <div class="card" id="storeCard">
+        <div class="head">存储<span class="dot" id="storeDot"></span></div>
+        <div class="big" id="storeBig">–</div>
+        <div class="sub" id="storeSub"></div>
+      </div>
+      <div class="rows" id="storeRows"></div>
+    </div>
+    <div>
+      <div class="v l-relay"></div>
+      <div class="tag t-relay" id="relayTag">↓ 每分钟读数</div>
+      <div class="card" id="relayCard">
+        <div class="head">中转站 Agent<span class="dot" id="relayDot"></span></div>
+        <div class="big" id="relayBig">–</div>
+        <div class="sub" id="relaySub"></div>
+      </div>
+      <div class="rows" id="relayRows"></div>
+    </div>
+    <div>
+      <div class="v l-srv"></div>
+      <div class="tag t-srv" id="srvTag">↓ 定时巡检</div>
+      <div class="card" id="srvCard">
+        <div class="head">服务器 Agent<span class="dot" id="svDot"></span></div>
+        <div class="big" id="svBig">–</div>
+        <div class="sub" id="svSub"></div>
+      </div>
+      <div class="rows" id="svRows"></div>
+    </div>
+  </div>
+</div>
+<div class="todo-back" id="todoBack" hidden>
+  <div class="todo-pop" role="dialog" aria-label="等你处理的事">
+    <h3><span id="todoPopTitle">等你处理的事</span><button class="btn" id="todoPopClose">关闭</button></h3>
+    <div id="todoPopBody"></div>
+  </div>
+</div>
+<div class="ops-alert" id="opsAlert" hidden>
+  <span class="dot warn"></span><span id="opsAlertText"></span>
+  <button class="btn" data-term="ops" data-open-only>去处理</button>
+</div>
+<div class="term" id="term" hidden>
+  <div class="term-grip" id="termGrip" title="拖动调整高度"></div>
+  <div class="term-bar">
+    <span class="dot ok"></span><strong>专用 Agent</strong>
+    <div class="tabs">
+      <button class="tab" data-pane="tasks">任务</button>
+      <button class="tab" data-pane="term">终端</button>
+      <button class="tab" data-pane="files">文件</button>
+      <button class="tab" data-pane="ops">审批<span class="badge" id="opsBadge" hidden></span></button>
+      <button class="tab" data-pane="sched">定时</button>
+      <button class="tab" data-pane="rules">自动化</button>
+      <button class="tab" data-pane="rulelib">规则库</button>
+      <button class="tab" data-pane="vault">密码库</button>
+      <button class="tab" data-pane="complib">组件库</button>
+      <button class="tab" data-pane="bots">Bot</button>
+      <button class="tab" data-pane="deskpc">Bot 桌面</button>
+      <button class="tab" data-pane="skillmk">技能市场</button>
+      <button class="tab" data-pane="mcpmk">MCP 市场</button>
+    </div>
+    <span class="hint" id="termHint"></span>
+    <span class="sp"></span>
+    <button id="termReload" title="卡住或断开时点这里">重新连接</button>
+    <button id="termMax">最大化</button>
+    <button id="termClose">收起</button>
+  </div>
+  <iframe id="termFrame" title="专用 Agent 终端" allow="clipboard-read; clipboard-write" hidden></iframe>
+  <iframe id="filesFrame" title="专用 Agent 文件" hidden></iframe>
+  <iframe id="tasksFrame" title="专用 Agent 任务" hidden></iframe>
+  <iframe id="opsFrame" title="专用 Agent 服务器操作审批" hidden></iframe>
+  <iframe id="schedFrame" title="定时任务" hidden></iframe>
+  <iframe id="rulesFrame" title="自动化规则" hidden></iframe>
+  <iframe id="rulelibFrame" title="规则库" hidden></iframe>
+  <iframe id="botsFrame" title="Bot" hidden allow="clipboard-read; clipboard-write"></iframe>
+  <iframe id="deskpcFrame" title="Bot 桌面" hidden allow="clipboard-read; clipboard-write"></iframe>
+  <iframe id="skillmkFrame" title="技能市场" hidden></iframe>
+  <iframe id="complibFrame" title="组件库" hidden></iframe>
+  <iframe id="vaultFrame" title="密码库" hidden></iframe>
+  <iframe id="mcpmkFrame" title="MCP 市场" hidden></iframe>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const hhmm = (t) => t ? new Date(t).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '–';
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// 通信动画：每轮巡视时按"派发 → 汇报 → 上报"的顺序点亮对应的连接线。
+const wrap = $('wrap');
+const TAGS = { boss: $('reportTag'), site: $('siteTag'), music: $('musicTag'), agent: $('agentTag'), bot: $('botTag'), auto: $('autoTag'), relay: $('relayTag'), srv: $('srvTag') };
+const IDLE = { boss: '↑ 有异常才找你', site: '↓ 定时巡检', music: '↓ 定时巡检', agent: '↓ 待命', bot: '↓ 待命', auto: '↓ 到点或告警时派活', relay: '↓ 每分钟读数', srv: '↓ 定时巡检' };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let commBusy = false;
+let seenRound, seenBrief;
+const seenLine = {};
+const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+// 元素相对于 .wrap 的位置。
+function box(el) {
+  const r = el.getBoundingClientRect(), w = wrap.getBoundingClientRect();
+  // 页面整体做了缩放：屏幕上量到的距离要除以缩放比例，才是 .wrap 内部用来定位光点的距离。
+  const z = w.width / wrap.offsetWidth || 1;
+  return {
+    l: (r.left - w.left) / z, r: (r.right - w.left) / z, t: (r.top - w.top) / z, b: (r.bottom - w.top) / z,
+    cx: (r.left - w.left + r.width / 2) / z, cy: (r.top - w.top + r.height / 2) / z,
+  };
+}
+// 让一个光点（带两个拖尾）沿折线 points 移动，到达后让 target 闪一下。
+async function fly(points, color, ms, target, small) {
+  let total = 0;
+  const dist = [0];
+  for (let i = 1; i < points.length; i++) {
+    total += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+    dist.push(total);
+  }
+  const frames = points.map((p, i) => ({ transform: `translate(${p.x}px,${p.y}px)`, offset: total ? dist[i] / total : i / (points.length - 1) }));
+  const runs = ['', 't1', 't2'].map(async (cls, i) => {
+    await sleep(i * 70);
+    const dot = document.createElement('i');
+    dot.className = 'pkt ' + cls;
+    dot.style.setProperty('--pc', color);
+    // 大小用宽高控制，不能用缩放：缩放会连同位移一起缩，光点就偏离连接线了。
+    dot.style.setProperty('--sz', (small ? 6 : 10) * [1, 0.75, 0.55][i] + 'px');
+    dot.style.transform = frames[0].transform;
+    wrap.appendChild(dot);
+    try { await dot.animate(frames, { duration: ms, easing: 'ease-in-out', fill: 'forwards' }).finished; } catch (e) { /* 动画被打断 */ }
+    dot.remove();
+  });
+  await runs[0];
+  if (target) {
+    target.style.setProperty('--pc', color);
+    target.classList.add('hit');
+    setTimeout(() => target.classList.remove('hit'), 450);
+  }
+  await Promise.all(runs);
+}
+const rev = (pts) => pts.slice().reverse();
+function pathBossCeo() {
+  const b = box($('bossCard')), c = box($('ceoCard'));
+  return [{ x: b.cx, y: b.b }, { x: c.cx, y: c.t }];
+}
+// 线路 Agent 和 CEO Agent 之间的横向路径（从线路卡片走到 CEO Agent）。那一侧没配置线路时返回 null。
+const LINE_SIDES = { left: { wrap: 'lineLeft', card: 'lineLeftCard', color: '--c-pojia' }, right: { wrap: 'lineRight', card: 'lineRightCard', color: '--c-qiye' } };
+function pathLineCeo(side) {
+  const m = LINE_SIDES[side];
+  if ($(m.wrap).classList.contains('off') || !$(m.card).offsetWidth) return null;
+  const a = box($(m.card)), c = box($('ceoCard'));
+  if (Math.abs(a.cy - c.cy) > Math.max(a.b - a.t, c.b - c.t)) return null; // 窄屏下卡片上下堆叠，不走横线
+  return side === 'left' ? [{ x: a.r, y: a.cy }, { x: c.l, y: a.cy }] : [{ x: a.l, y: a.cy }, { x: c.r, y: a.cy }];
+}
+// 线路 Agent 向上走到创始人卡片的侧边。没有画那条线时返回 null。
+function pathLineBoss(side) {
+  const m = LINE_SIDES[side], card = $(m.card);
+  if (!pathLineCeo(side) || !(parseFloat(card.style.getPropertyValue('--reach')) > 0)) return null;
+  const a = box(card), boss = box($('bossCard'));
+  return [{ x: a.cx, y: a.t }, { x: a.cx, y: boss.cy }, { x: side === 'left' ? boss.l : boss.r, y: boss.cy }];
+}
+// 线路 Agent 经垂线和横线走到下面某一列的卡片。横线不显示时返回 null。
+function pathLineDown(side, card) {
+  const m = LINE_SIDES[side], bar = $('bar');
+  if ($(m.wrap).classList.contains('off') || !$(m.card).offsetWidth || !bar.offsetWidth) return null;
+  const a = box($(m.card)), t = box(card), y = box(bar).cy;
+  return [{ x: a.cx, y: a.b }, { x: a.cx, y }, { x: t.cx, y }, { x: t.cx, y: t.t }];
+}
+function pathCeoAgent(card) {
+  const c = box($('ceoCard')), a = box(card), bar = $('bar');
+  if (!bar.offsetWidth) return [{ x: c.cx, y: c.b }, { x: a.cx, y: a.t }];
+  const y = box(bar).cy;
+  return [{ x: c.cx, y: c.b }, { x: c.cx, y }, { x: a.cx, y }, { x: a.cx, y: a.t }];
+}
+function pathsAgentRows(card, rowsEl) {
+  const a = box(card);
+  return [...rowsEl.querySelectorAll('.row')].map((row) => {
+    const r = box(row), x = r.l - 25;
+    return { row, pts: [{ x, y: a.b }, { x, y: r.cy }, { x: r.l, y: r.cy }] };
+  });
+}
+function setTag(k, text, color) { TAGS[k].textContent = text; TAGS[k].style.color = color || ''; }
+
+async function runComm(fromUser) {
+  if (commBusy || document.hidden || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  commBusy = true;
+  const gold = cssVar('--c-boss');
+  const ceo = $('ceoCard');
+  // 三个部门 Agent：各自的卡片、明细行、线旁文字和专属颜色。
+  const agents = [
+    { key: 'site', card: $('siteCard'), rows: $('siteRows'), color: cssVar('--c-site') },
+    { key: 'music', card: $('musicCard'), rows: $('musicRows'), color: cssVar('--c-music') },
+    { key: 'agent', card: $('agentCard'), rows: null, color: cssVar('--c-agent') }, // 巡视只探测专用 Agent 在不在线，不逐行检查
+    { key: 'relay', card: $('relayCard'), rows: $('relayRows'), color: cssVar('--c-relay') },
+    { key: 'srv', card: $('srvCard'), rows: $('svRows'), color: cssVar('--c-srv') },
+  ];
+  const tagAll = (text) => agents.forEach((a) => setTag(a.key, text, text ? a.color : ''));
+  try {
+    if (fromUser) {
+      setTag('boss', '↓ 下达：立即巡视', gold);
+      await fly(pathBossCeo(), gold, 700, ceo);
+      setTag('boss', IDLE.boss);
+    }
+    tagAll('↓ 派发巡检');
+    await Promise.all(agents.map((a) => fly(pathCeoAgent(a.card), a.color, 900, a.card)));
+
+    tagAll('巡检中…');
+    const leaves = agents.filter((a) => a.rows).flatMap((a) => pathsAgentRows(a.card, a.rows).map((p) => ({ ...p, color: a.color })));
+    await Promise.all(leaves.map((p, i) => sleep(i * 50).then(() => fly(p.pts, p.color, 550, p.row, true))));
+    await Promise.all(leaves.map((p, i) => sleep(i * 50).then(() => fly(rev(p.pts), p.color, 550, null, true))));
+
+    tagAll('↑ 汇报结果');
+    await Promise.all(agents.map((a) => fly(rev(pathCeoAgent(a.card)), a.color, 900, ceo)));
+    agents.forEach((a) => setTag(a.key, IDLE[a.key]));
+
+    // 只有你亲手点的巡视、或者这一轮查出了需要你处理的事，才往上报给你。
+    if (fromUser || pillState.todo) {
+      setTag('boss', fromUser ? '↑ 汇报结果' : '↑ 有异常，上报', gold);
+      await fly(rev(pathBossCeo()), gold, 700, $('bossCard'));
+    }
+  } finally {
+    for (const k in TAGS) setTag(k, IDLE[k]);
+    commBusy = false;
+  }
+}
+
+// ---- 光点只代表真实发生的通讯 ----
+// 没有装饰性的"心跳"：只有下面这些真事发生时才有光点——
+//   新一轮巡视（各监控 Agent 真的去检查了）、线路自检、CEO 写出新简报、
+//   Agent 提交命令给 CEO 审核 / CEO 给出结论 / 命令发往服务器、任务开始和结束、自动化触发任务、有事需要你决定。
+const quiet = () => document.hidden || matchMedia('(prefers-reduced-motion: reduce)').matches;
+const COLS = {
+  site: ['siteCard', '--c-site'], music: ['musicCard', '--c-music'], agent: ['agentCard', '--c-agent'], auto: ['autoCard', '--c-auto'],
+  bot: ['botCard', '--c-bot'], store: ['storeCard', '--c-store'], relay: ['relayCard', '--c-relay'], srv: ['srvCard', '--c-srv'],
+};
+async function dot(pts, colorVar, ms, target) {
+  if (quiet() || !pts) return;
+  try { await fly(pts, cssVar(colorVar), ms, target || null); } catch (e) { /* 页面正在重排时量不到位置，这一次不画 */ }
+}
+const upFrom = (k) => dot(rev(pathCeoAgent($(COLS[k][0]))), COLS[k][1], 900, $('ceoCard'));   // 某一列 → CEO Agent
+const downTo = (k) => dot(pathCeoAgent($(COLS[k][0])), COLS[k][1], 900, $(COLS[k][0]));        // CEO Agent → 某一列
+const toBoss = () => dot(rev(pathBossCeo()), '--c-boss', 700, $('bossCard'));                   // CEO Agent → 你
+const fromBoss = () => dot(pathBossCeo(), '--c-boss', 700, $('ceoCard'));                       // 你 → CEO Agent
+// 从一列沿着横线走到另一列（比如自动化 Agent 把任务交给专用 Agent、命令发往服务器）。
+function between(a, b) {
+  const bar = $('bar');
+  if (!bar.offsetWidth) return Promise.resolve();
+  const A = box($(COLS[a][0])), Z = box($(COLS[b][0])), y = box(bar).cy;
+  return dot([{ x: A.cx, y: A.t }, { x: A.cx, y }, { x: Z.cx, y }, { x: Z.cx, y: Z.t }], COLS[a][1], 1200, $(COLS[b][0]));
+}
+// 线路自检：CEO Agent 问一句，线路答一句。
+async function lineProbe(side) {
+  const pts = pathLineCeo(side);
+  if (!pts) return;
+  await dot(rev(pts), LINE_SIDES[side].color, 700, $(LINE_SIDES[side].card));
+  await dot(pts, LINE_SIDES[side].color, 700, $('ceoCard'));
+}
+// 服务器命令的审核过程。每 3 秒看一次审批列表，只对"新出现的变化"画光点；刚打开页面时已有的记录不画。
+let opsSeen = null, axSeen = null;
+// 专用 Agent / 自动化 Agent 申请扩展（→ CEO Agent → 开发者 → 回来），以及把事情交给 Bot（Agent ↔ Bot）。刚打开页面时只记下，不画。
+function agentExtEvents(d) {
+  const first = axSeen === null;
+  if (first) axSeen = new Set();
+  const once = (k) => { if (axSeen.has(k)) return false; axSeen.add(k); return !first; };
+  for (const r of d.ext || []) {
+    const col = r.agent === 'auto' ? 'auto' : 'agent', steps = [];
+    if (once(r.id + ':new')) steps.push(() => upFrom(col));
+    if (r.state === 'denied' && once(r.id + ':deny')) steps.push(() => downTo(col));
+    if (r.review && r.review.verdict === 'allow' && once(r.id + ':allow')) steps.push(() => lineProbe('right'));
+    if ((r.state === 'installed' || r.state === 'failed') && once(r.id + ':done')) steps.push(() => downTo(col));
+    if (steps.length) (async () => { for (const s of steps) await s(); })();
+  }
+  for (const j of d.botjobs || []) {
+    const col = j.agent === 'auto' ? 'auto' : 'agent';
+    if (j.state !== 'queued' && j.botName && once(j.id + ':go')) between(col, 'bot');
+    if ((j.state === 'done' || j.state === 'failed') && j.botName && once(j.id + ':back')) between('bot', col);
+  }
+}
+function opsEvents(d) {
+  const first = opsSeen === null;
+  if (first) opsSeen = new Set();
+  const once = (key) => { if (opsSeen.has(key)) return false; opsSeen.add(key); return !first; };
+  for (const r of [...(d.pending || []), ...(d.secrets || []), ...(d.recent || [])]) {
+    const col = r.agent === 'auto' ? 'auto' : 'agent';
+    const st = (r.review || {}).state;
+    const steps = [];
+    if (r.kind === 'mail') { if (r.status === 'pending' && once(r.id + ':owner')) steps.push(() => upFrom(col), toBoss); }
+    else {
+      if (once(r.id + ':new') && !r.auto && st !== 'rule' && st !== 'off') steps.push(() => upFrom(col));            // 提交给 CEO Agent 审核
+      if ((st === 'allow' || st === 'deny') && once(r.id + ':verdict')) steps.push(() => downTo(col));                 // CEO Agent 给出结论
+      if ((st === 'ask' || st === 'timeout' || st === 'off') && r.status === 'pending' && once(r.id + ':owner')) steps.push(st === 'off' ? () => upFrom(col) : null, toBoss); // 需要你决定
+      if (r.kind === 'secret') { if (r.taken && once(r.id + ':run')) steps.push(() => between('store', col)); }      // 密码从库里交给 Agent
+      else if ((r.status === 'running' || r.status === 'done') && once(r.id + ':run')) steps.push(() => between(col, 'srv')); // 命令发往服务器
+    }
+    if (steps.length) (async () => { for (const step of steps) if (step) await step(); })();
+  }
+}
+// 任务：你发的任务（你 → CEO Agent → 专用 Agent）、自动化触发的任务（自动化 Agent → 专用 Agent）、任务结束（专用 Agent → CEO Agent → 你）。
+let taskSeen = null;
+function taskEvents(list) {
+  const first = taskSeen === null;
+  if (first) taskSeen = new Map();
+  for (const t of list) {
+    const prev = taskSeen.get(t.id), active = t.status === 'running' || t.status === 'queued';
+    taskSeen.set(t.id, t.status);
+    if (first || prev === t.status) continue;
+    if (prev === undefined) { if (t.source) between('auto', 'agent'); else (async () => { await fromBoss(); await downTo('agent'); })(); }
+    if (!active && (prev === undefined || prev === 'running' || prev === 'queued')) (async () => { if (prev === undefined) await sleep(2400); await upFrom('agent'); await toBoss(); })();
+  }
+}
+
+// 把每列主干的高度设到最后一行的中点。
+function setTrunks() {
+  for (const el of document.querySelectorAll('.rows')) {
+    const last = el.lastElementChild;
+    el.style.setProperty('--trunk-h', last ? last.offsetTop + last.offsetHeight / 2 + 'px' : '0px');
+  }
+}
+addEventListener('resize', setTrunks);
+function setDrops() {
+  const bar = $('bar');
+  const barY = bar.offsetWidth ? box(bar).cy : null;
+  for (const side of Object.keys(LINE_SIDES)) {
+    const card = $(LINE_SIDES[side].card);
+    const visible = barY !== null && !$(LINE_SIDES[side].wrap).classList.contains('off') && card.offsetWidth;
+    card.style.setProperty('--drop', visible ? Math.max(0, barY - box(card).b) + 'px' : '0px');
+    // 向上连到创始人卡片：竖着升到它的中线高度（--rise），再横着够到它的侧边（--reach）。
+    // 只在宽屏的横排布局下画：窄屏堆叠时线路卡片就在创始人卡片正下方，够不着侧边，就不画。
+    const a = box(card), boss = box($('bossCard'));
+    const reach = side === 'left' ? boss.l - a.cx : a.cx - boss.r;
+    const up = pathLineCeo(side) && reach > 0 && a.t > boss.cy;
+    card.style.setProperty('--rise', up ? (a.t - boss.cy) + 'px' : '0px');
+    card.style.setProperty('--reach', up ? reach + 'px' : '0px');
+  }
+}
+addEventListener('resize', setDrops);
+// CEO Agent 的简报变长变短时，这一行的高度会变，垂线也要跟着重新量。
+new ResizeObserver(setDrops).observe($('ceoCard'));
+
+function render(d) {
+  renderInner(d);
+  setTrunks();
+  setDrops();
+}
+function renderInner(d) {
+  // 只有真的发生了新一轮巡视才播放通信动画；刚打开或刷新页面时只记下当前轮次，不播放。
+  if (d.lastRound && d.lastRound !== seenRound) {
+    const firstLoad = seenRound === undefined;
+    seenRound = d.lastRound;
+    if (!firstLoad) runComm(false);
+  }
+  const checked = d.sites.filter((s) => s.last);
+  const upCount = checked.filter((s) => s.last.up).length;
+  const worst = d.todo.some((t) => t.level === 'danger') ? 'bad' : d.todo.length ? 'warn' : 'ok';
+
+  pillState = { rounds: d.rounds, todo: d.todo.length, worst };
+  todoItems = d.todo; paintTodoPop();
+  paintPill();
+  $('ceoDot').className = 'dot ' + (d.rounds ? worst : '');
+  $('ceoLine').textContent = d.rounds
+    ? `今日已巡视 ${d.roundsToday} 轮 · 上次 ${hhmm(d.lastRound)} · 下次 ${hhmm(d.nextRound)}`
+    : '正在进行第一轮巡视…';
+  $('todoList').innerHTML = d.todo.map((t) => `<li class="${t.level}">${esc(t.text)}</li>`).join('');
+  renderLines(d.lines);
+  $('onduty').textContent = `${8 + (d.lines || []).length}/${8 + (d.lines || []).length} Agent 在岗`;
+
+  paintCeoLog(d.ceoLog);
+  const b = d.brief || {};
+  // CEO Agent 写出了新简报 → 往上报给你；线路做了一次自检 → 和 CEO Agent 之间一问一答。刚打开页面时只记下，不画。
+  if (b.at && b.at !== seenBrief) { if (seenBrief !== undefined) toBoss(); seenBrief = b.at; } else if (seenBrief === undefined) seenBrief = b.at || null;
+  for (const l of d.lines || []) {
+    if (seenLine[l.key] !== undefined && l.at && l.at !== seenLine[l.key]) lineProbe(l.side);
+    seenLine[l.key] = l.at || null;
+  }
+  $('brief').hidden = !b.enabled;
+  if (b.enabled) {
+    $('briefText').textContent = b.text || (b.pending ? '正在撰写简报…' : b.error ? '' : '等待第一份简报…');
+    const meta = [];
+    if (b.at) meta.push(`${showModel(b.model)} · ${hhmm(b.at)} 撰写`);
+    if (b.pending && b.text) meta.push('正在更新…');
+    if (b.error) meta.push(`大模型调用失败：${b.error}`);
+    $('briefMeta').textContent = meta.join(' · ');
+    $('briefMeta').className = 'brief-meta' + (b.error ? ' err' : '');
+  }
+
+  $('siteBig').textContent = checked.length ? `${upCount}/${d.sites.length}` : '–';
+  $('siteDot').className = 'dot ' + (!checked.length ? '' : upCount === d.sites.length ? 'ok' : 'bad');
+  $('siteRows').innerHTML = d.sites.map((s) => {
+    const r = s.last;
+    if (!r) return `<div class="row"><div class="l1"><span class="dot"></span><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.name)}</a></div><div class="l2">等待检查</div></div>`;
+    const cert = r.certDaysLeft === null ? '' : `<span>证书剩 ${r.certDaysLeft} 天</span>`;
+    const detail = r.up ? `<span>HTTP ${r.status}</span>${cert}` : `<span>${esc(r.error || 'HTTP ' + r.status)}</span>`;
+    const hist = s.history.map((h) => `<i class="${h ? '' : 'd'}"></i>`).join('');
+    const p = r.phases;
+    const tip = p ? ` title="从调度台服务器访问一次的总耗时 ${r.ms} ms：域名解析 ${p.dns} + 建立连接 ${p.connect} + TLS 握手 ${p.tls} + 等待响应 ${p.wait} + 下载页面 ${p.download}"` : '';
+    return `<div class="row${r.up ? '' : ' bad'}">
+      <div class="l1"><span class="dot ${r.up ? 'ok' : 'bad'}"></span><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.name)}</a><span class="ms"${r.up ? tip : ''}>${r.up ? r.ms + ' ms' : '打不开'}</span></div>
+      <div class="l2"><span>${esc(new URL(s.url).host)}</span>${detail}</div>
+      <div class="hist" title="最近 ${s.history.length} 次检查">${hist}</div>
+    </div>`;
+  }).join('');
+
+  renderMusic(d.music);
+  renderAgent(d.agent);
+  loadAutoInfo(d.agent);
+  loadStorage(d.agent);
+  renderRelay(d.relay);
+
+  const servers = d.servers || [];
+  const online = servers.filter((s) => s.up).length;
+  const broken = servers.some((s) => s.configured && s.up === false);
+  $('svBig').textContent = servers.length ? `${online}/${servers.length}` : '–';
+  $('svSub').textContent = '服务器已接入';
+  $('svDot').className = 'dot ' + (broken ? 'bad' : online < servers.length ? 'warn' : 'ok');
+  $('svRows').innerHTML = servers.map(serverRow).join('');
+}
+
+// 大数字缩写，写法和中转站后台一致：19170 → 19.17K；30260000000 → 30.26B。
+const num = (n) => Number(n || 0).toLocaleString('en-US');
+function short(n) {
+  n = Number(n || 0);
+  if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(2) + 'K';
+  return num(n);
+}
+const secs = (ms) => (ms === null || ms === undefined ? '–' : (ms / 1000).toFixed(2));
+const PLAY = { playing: '播放中', paused: '已暂停', ready: '就绪', idle: '空闲' };
+function renderMusic(m) {
+  if (!m) { $('musicBig').textContent = '未配置'; $('musicSub').textContent = ''; $('musicDot').className = 'dot'; $('musicRows').innerHTML = ''; return; }
+  if (m.ok === null) { $('musicBig').textContent = '–'; $('musicSub').textContent = '等待第一次巡检'; return; }
+  if (!m.ok) {
+    $('musicBig').textContent = '读不到状态';
+    $('musicSub').textContent = m.name;
+    $('musicDot').className = 'dot warn';
+    $('musicRows').innerHTML = `<div class="row"><div class="l2">${esc(m.error || '')}</div></div>`;
+    return;
+  }
+  const up = m.bots.filter((b) => b.online).length;
+  const odd = m.bots.some((b) => b.online && b.status !== 'ready');
+  $('musicBig').textContent = `${up}/${m.bots.length}`;
+  $('musicSub').innerHTML = `机器人在线 · <a href="${esc(m.url)}" target="_blank" rel="noopener" style="color:inherit">${esc(m.name)}</a>`;
+  $('musicDot').className = 'dot ' + (up < m.bots.length ? 'bad' : odd ? 'warn' : 'ok');
+  $('musicRows').innerHTML = m.bots.map((b) => {
+    const state = !b.online ? '离线' : b.status !== 'ready' ? '异常' : (PLAY[b.play] || b.play || '就绪');
+    const cls = !b.online ? 'bad' : b.status !== 'ready' ? 'warn' : 'ok';
+    const song = b.track ? `${esc(b.track.name)}${b.track.artists ? ' — ' + esc(b.track.artists) : ''}` : '没有在播放的歌曲';
+    const extra = [`队列 ${b.queue} 首`];
+    if (b.online && !b.connected) extra.push('未连接语音频道');
+    if (b.voice !== null) extra.push(`语音 ${b.voice} 人`);
+    return `<div class="row${b.online ? '' : ' bad'}">
+      <div class="l1"><span class="dot ${cls}"></span><span>${esc(b.name)}</span><span class="ms">${state}</span></div>
+      <div class="l2"><span class="song">${b.play === 'playing' ? '♪ ' : ''}${song}</span></div>
+      <div class="l2">${extra.map((x) => `<span>${x}</span>`).join('')}</div>
+    </div>`;
+  }).join('');
+}
+
+// ---- 内嵌终端 ----
+// 底部面板有两个标签页：终端（和 Agent 对话）和文件（Agent 工作目录）。各自第一次打开时才加载。
+const PANES = {
+  term: { frame: $('termFrame'), url: '/term/', hint: '会话保存在服务器上，刷新或关闭页面都不会丢' },
+  files: { frame: $('filesFrame'), url: '/files/', hint: 'Agent 的工作目录：可以上传、下载、整理文件' },
+  tasks: { frame: $('tasksFrame'), url: '/tasks/', hint: '写一句话交给 Agent，它在后台做完后把结果放在这里' },
+  ops: { frame: $('opsFrame'), url: '/ops/', hint: 'Agent 想在服务器上执行的每条命令，都要你在这里批准' },
+  sched: { frame: $('schedFrame'), url: '/tasks/auto?view=schedules', hint: '到点了自动给专用 Agent 发任务' },
+  rules: { frame: $('rulesFrame'), url: '/tasks/auto?view=rules', hint: '调度台出现新告警时，按规则自动给专用 Agent 发任务' },
+  bots: { frame: $('botsFrame'), url: '/bots/', hint: '和 Bot 对话：给它一个任务，它在自己的电脑上搜索、开网页、跑命令，做完把成果交给你' },
+  deskpc: { frame: $('deskpcFrame'), url: '/desk/vnc.html?autoconnect=1&resize=scale&reconnect=1&path=desk/websockify', hint: 'Bot 的电脑的实时画面，可以直接用鼠标键盘操作' },
+  vault: { frame: $('vaultFrame'), url: '/ops/vault', hint: '专用密码 Key：存网站密码和各种密钥，Agent 要用必须经 CEO Agent 批准' },
+  complib: { frame: $('complibFrame'), url: '/tasks/components', hint: '组件库里都有什么：每个组件叫什么、干什么用、长什么样' },
+  skillmk: { frame: $('skillmkFrame'), url: '/tasks/market?view=skills', hint: '挑选现成的技能，一键装进专用 Agent 的技能库' },
+  mcpmk: { frame: $('mcpmkFrame'), url: '/tasks/market?view=mcp', hint: '挑选现成的外部工具（MCP），一键装进专用 Agent 的 MCP 库' },
+  rulelib: { frame: $('rulelibFrame'), url: '/ops/rules', hint: '这里禁止的命令，Agent 提交了也不会执行，谁也批准不了' },
+};
+// 服务器操作审批：Agent 提交了命令在等批准时，页面顶部出现提醒，顶部"等你 N 件"也把它算进去。
+let opsPending = 0, opsMine = [], todoItems = [];
+// 点顶上的"等你 N 件"弹出的清单：待批准的逐条列出（可直接去处理），巡视发现的异常逐条列出。
+function paintTodoPop() {
+  if ($('todoBack').hidden) return;
+  const n = opsMine.length + todoItems.length;
+  $('todoPopTitle').textContent = n ? `等你处理的事（${n} 件）` : '等你处理的事';
+  let h = '';
+  if (opsMine.length) {
+    h += '<div class="grp">等你批准</div>' + opsMine.map((r) => {
+      const who = r.agent === 'auto' ? '自动化 Agent' : '专用 Agent';
+      const what = r.kind === 'mail' ? `${who} 想发邮件给 ${esc((r.to || []).join('、'))}` : `${who} 想在 ${esc(r.label || '服务器')} 上执行命令`;
+      const detail = r.kind === 'mail' ? '标题：' + esc(r.subject || '') : esc(r.command || '');
+      return `<div class="it"><span class="dot warn"></span><div class="tx">${what}<small>${detail}</small></div><button class="btn" data-term="ops" data-open-only data-todo-go>去处理</button></div>`;
+    }).join('');
+  }
+  if (todoItems.length) {
+    h += '<div class="grp">CEO Agent 巡视发现的异常</div>' + todoItems.map((t) =>
+      `<div class="it"><span class="dot ${t.level === 'danger' ? 'bad' : 'warn'}"></span><div class="tx">${esc(t.text)}</div></div>`).join('');
+  }
+  if (!n) h = '<div class="none">现在没有需要你处理的事。</div>';
+  $('todoPopBody').innerHTML = h;
+}
+function toggleTodoPop(on) { $('todoBack').hidden = !on; paintTodoPop(); if (on) $('todoPopClose').focus(); }
+$('bossCard').addEventListener('click', () => toggleTodoPop(true));
+$('bossCard').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleTodoPop(true); } });
+$('todoPopClose').addEventListener('click', () => toggleTodoPop(false));
+$('todoBack').addEventListener('click', (e) => { if (e.target === $('todoBack') || e.target.closest('[data-todo-go]')) toggleTodoPop(false); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('todoBack').hidden) toggleTodoPop(false); });
+let pillState = { rounds: 0, todo: 0, worst: 'ok' };
+function paintPill() {
+  const n = pillState.todo + opsPending;
+  $('todoPill').className = 'pill ' + (opsPending ? 'warn' : pillState.rounds ? pillState.worst : '');
+  $('todoPill').textContent = n ? `等你 ${n} 件` : pillState.rounds ? '无需处理' : '巡视中';
+}
+async function loadOps() {
+  try {
+    const res = await fetch('/ops/api/list');
+    if (!res.ok) return;
+    const d = await res.json();
+    opsEvents(d);
+    agentExtEvents(d);
+    const mine = (d.pending || []).filter((r) => !(r.review && r.review.state === 'waiting')); // CEO Agent 还在审的先不打扰主人
+    opsPending = mine.length; opsMine = mine; paintTodoPop();
+    $('opsBadge').hidden = !opsPending;
+    $('opsBadge').textContent = opsPending;
+    $('opsAlert').hidden = !opsPending || (!term.hidden && pane === 'ops'); // 已经开着审批页就不再重复提醒
+    if (opsPending) {
+      const first = mine[0];
+      $('opsAlertText').textContent = (first.kind === 'mail' ? `专用 Agent 想发邮件给 ${(first.to || []).join('、')}` : `专用 Agent 想在 ${first.label} 上执行命令`) + (opsPending > 1 ? `（共 ${opsPending} 条）` : '') + '，等你批准';
+    }
+    paintPill();
+  } catch (e) { /* 本地预览或审批服务不可用时没有这个接口 */ }
+}
+async function loadMailInfo() {
+  const el = $('agentMailInfo');
+  if (!el) return;
+  try {
+    const res = await fetch('/ops/api/mail');
+    if (!res.ok) return;
+    const m = await res.json();
+    const mode = (m.policy || {}).mode;
+    el.textContent = m.configured ? 'Gmail：' + m.address + (mode === 'all' ? ' · 全部免审批' : mode === 'list' ? ' · 名单内免审批' : ' · 发给别人要审批') : 'Gmail：还没有配置，点"设置"填写';
+    el.style.color = m.configured ? '' : 'var(--warn)';
+  } catch (e) { /* 本地预览没有这个接口 */ }
+}
+setInterval(loadMailInfo, 15000);
+setTimeout(loadMailInfo, 1200);
+// ---- Bot 列 ----
+const MODEL_NAMES = { 'deepseek-v4.1-flash-abliterated': 'deepseek-v4.1-flash' };   // 模型的显示名：只改界面上看到的名字，实际调用的模型不变
+const showModel = (id) => MODEL_NAMES[id] || id || '';
+// ---- 和 CEO Agent 通话：像打电话一样。点一次开始，之后一直开着：你说完停一下它就自动接话，并用语音回答。----
+let voiceKey = '', voiceBusy = false, voicePoll = 0, voiceShow = false;
+const call = { on: false, state: 'idle', ctx: null, stream: null, node: null, audio: null, spoken: new Set(), queue: [], pre: [], rec: [], speaking: false, loudMs: 0, lastLoud: 0, startAt: 0, noise: 0.006, muteUntil: 0, sending: false };
+const VOICE_BYE = /^(挂断|挂了|挂电话|挂掉|再见|拜拜|先这样|就这样)[吧了啊呀哈。.!！~， ]*$/;
+async function voiceApi(route, opt) {
+  const res = await fetch('/api/voice/' + route, opt ? { method: 'POST', headers: { 'X-Voice-Action': '1', 'Content-Type': opt.type || 'application/json' }, body: opt.body } : { cache: 'no-store' });
+  if (res.status === 401) { location.href = '/login'; throw new Error('登录过期了'); }
+  if (opt && opt.raw && res.ok) return res.blob();
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(j.error || '操作失败（' + res.status + '）');
+  return j;
+}
+function voiceTip(text, bad) { $('voiceTip').textContent = text || ''; $('voiceTip').className = 'voice-tip' + (bad ? ' err' : ''); }
+function voiceState(state, text) {
+  call.state = state;
+  $('voiceState').hidden = !call.on;
+  $('voiceState').className = 'voice-state ' + state;
+  $('voiceStateText').textContent = text || { listen: '正在听，直接说话就行', think: '正在想…', speak: '正在说…' }[state] || '';
+  if (state !== 'listen') $('voiceLv').style.transform = '';
+}
+function paintVoice(d) {
+  voiceBusy = Boolean(d.busy);
+  const items = d.items || [];
+  callFeed(items);
+  $('voiceBox').hidden = !(call.on || voiceShow);
+  const key = JSON.stringify([items.length, items.length ? items[items.length - 1].id : 0, voiceBusy, items.map((m) => m.state || '').join('')]);
+  if (key === voiceKey) return;
+  voiceKey = key;
+  const isBot = (m) => m.kind === 'bot' || (m.ref && m.ref.kind === 'bot');
+  const go = (m) => `<div class="go"><button class="btn" data-term="${isBot(m) ? 'bots' : 'tasks'}" data-open-only>去${isBot(m) ? ' Bot 对话' : '任务'}里看全部</button></div>`;
+  const STATE = { running: ['', '对方正在做，做完会告诉你'], done: ['ok', '已经做完'], failed: ['bad', '没有做成'], unknown: ['', '没有等到结果，去对应的页面看'] };
+  $('voiceList').innerHTML = (items.length ? items.map((m) => {
+    if (m.role === 'me') return `<div class="vm me"><div class="bub">${esc(m.text)}</div></div>`;
+    if (m.role === 'result') return `<div class="vm"><div class="who">${esc(m.from || '')} · ${m.ok ? '做完了' : '没做成'}</div><div class="bub res">${esc(m.text)}</div>${go(m)}</div>`;
+    const st = m.state && STATE[m.state];
+    return `<div class="vm"><div class="who">CEO Agent${m.to ? ' → ' + esc(m.to) : ''}</div><div class="bub">${esc(m.text)}${m.task ? `<small>交代给对方的话：${esc(m.task)}</small>` : ''}</div>${st ? `<div class="st ${st[0]}">${st[1]}</div>` : ''}</div>`;
+  }).join('') : '<div class="voice-none">还没有通话记录。点"开始通话"后直接说话：说完停一下，CEO Agent 就会接话。</div>')
+    + (voiceBusy ? '<div class="vm"><div class="who">CEO Agent</div><div class="bub dim">正在想…</div></div>' : '');
+  $('voiceList').scrollTop = $('voiceList').scrollHeight;
+}
+async function voiceLoad() { try { paintVoice(await voiceApi('log')); } catch (e) { /* 下一轮再取 */ } }
+function voicePolling() {
+  clearInterval(voicePoll);
+  if (call.on || voiceShow) { voiceLoad(); voicePoll = setInterval(voiceLoad, call.on ? 1200 : 3000); }
+  else $('voiceBox').hidden = true;
+}
+async function voiceSend(text) {
+  text = String(text || '').trim();
+  if (!text) return false;
+  call.sending = true;
+  try {
+    await voiceApi('say', { body: JSON.stringify({ text, call: call.on }) });
+    voiceBusy = true; voiceTip('');
+    try { fromBoss(); } catch (e) { /* 动画画不出来不要紧 */ }
+    return true;
+  } catch (e) { voiceTip(e.message, true); return false; }
+  finally { call.sending = false; voiceLoad(); }
+}
+
+// 通话中：新出现的回答和结果要念出来。开始通话之前就有的记录不念。
+function callFeed(items) {
+  if (!call.on) return;
+  for (const m of items) {
+    if (call.spoken.has(m.id)) continue;
+    if (m.role === 'ceo') { call.spoken.add(m.id); call.queue.push(m.text); }
+    else if (m.role === 'result') { if (m.speak) { call.spoken.add(m.id); call.queue.push(m.speak); } }
+    else call.spoken.add(m.id);
+  }
+  callPump();
+}
+function callPump() {
+  if (!call.on || call.state === 'speak' || call.speaking) return;
+  if (call.queue.length) return callSpeak(call.queue.shift());
+  if (call.state === 'think' && !voiceBusy && !call.sending) callListen();
+}
+function callListen() { call.pre = []; call.rec = []; call.speaking = false; call.loudMs = 0; call.muteUntil = Date.now() + 350; voiceState('listen'); }
+async function callSpeak(text) {
+  voiceState('speak');
+  const done = () => { call.audio = null; if (!call.on) return; callListen(); callPump(); };
+  try {
+    const blob = await voiceApi('tts', { body: JSON.stringify({ text }), raw: true });
+    if (!call.on) return;
+    const a = new Audio(URL.createObjectURL(blob));
+    call.audio = a;
+    a.onended = a.onerror = () => { URL.revokeObjectURL(a.src); done(); };
+    await a.play();
+  } catch (e) {
+    // 服务器那边念不出来时，退回用浏览器自带的朗读。
+    if (call.on && window.speechSynthesis) {
+      const u = new SpeechSynthesisUtterance(text); u.lang = 'zh-CN'; u.onend = u.onerror = done;
+      try { speechSynthesis.speak(u); return; } catch (err) { /* 也不行就跳过 */ }
+    }
+    voiceTip('这一句没能念出来，文字在通话记录里', true); done();
+  }
+}
+function wavBlob(frames) {
+  const n = frames.reduce((s, f) => s + f.length, 0), buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 16000, true); v.setUint32(28, 32000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); str(36, 'data'); v.setUint32(40, n * 2, true);
+  let o = 44;
+  for (const f of frames) for (let i = 0; i < f.length; i++, o += 2) v.setInt16(o, Math.max(-1, Math.min(1, f[i])) * 32767, true);
+  return new Blob([buf], { type: 'audio/wav' });
+}
+async function callUtterance(frames) {
+  voiceState('think', '听到了，正在转成文字…');
+  try {
+    const r = await voiceApi('stt', { body: wavBlob(frames), type: 'application/octet-stream' });
+    if (!call.on) return;
+    const text = String(r.text || '').trim();
+    if (text.replace(/[\s。，,.!！?？~、]/g, '').length < 2) return callListen();   // 咳嗽、杂音之类
+    if (VOICE_BYE.test(text)) return callStop();
+    voiceState('think');
+    if (!(await voiceSend(text))) callListen();
+  } catch (e) { if (call.on) { voiceTip('没有听清：' + e.message, true); callListen(); } }
+}
+// 每一小段声音进来：判断你是不是在说话；说完停顿约一秒就当作一句话结束。
+function callFrame(input, rate) {
+  if (!call.on) return;
+  const now = Date.now(), ms = input.length / rate * 1000;
+  let sum = 0;
+  for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
+  const rms = Math.sqrt(sum / input.length);
+  if (call.state !== 'listen' || now < call.muteUntil) return;
+  const step = rate / 16000, out = new Float32Array(Math.floor(input.length / step));
+  for (let i = 0; i < out.length; i++) { const a = Math.floor(i * step), b = Math.max(a + 1, Math.floor((i + 1) * step)); let s = 0; for (let k = a; k < b; k++) s += input[k]; out[i] = s / (b - a); }
+  const thr = Math.max(0.015, call.noise * 3.2);
+  $('voiceLv').style.transform = 'scale(' + (1 + Math.min(1.6, rms * 14)).toFixed(2) + ')';
+  if (!call.speaking) {
+    call.pre.push(out);
+    if (call.pre.length > 14) call.pre.shift();   // 留半秒左右的"前奏"，免得第一个字被切掉
+    if (rms > thr) call.loudMs += ms; else { call.loudMs = 0; call.noise = call.noise * 0.95 + rms * 0.05; }
+    if (call.loudMs >= 110) { call.speaking = true; call.rec = call.pre; call.pre = []; call.startAt = now; call.lastLoud = now; $('voiceStateText').textContent = '正在听…说完停一下就行'; }
+    return;
+  }
+  call.rec.push(out);
+  if (rms > thr) call.lastLoud = now;
+  if (now - call.lastLoud > 1000 || now - call.startAt > 60000) {
+    const frames = call.rec, spoke = call.lastLoud - call.startAt;
+    call.rec = []; call.speaking = false; call.loudMs = 0;
+    if (spoke < 200) { $('voiceStateText').textContent = '正在听，直接说话就行'; return callPump(); }
+    callUtterance(frames);
+  }
+}
+async function callStart() {
+  if (!navigator.mediaDevices || !(window.AudioContext || window.webkitAudioContext)) return voiceTip('这个浏览器不支持通话，可以点"通话记录"打字', true);
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
+  catch (e) { return voiceTip(e.name === 'NotAllowedError' ? '浏览器没有允许使用麦克风：点地址栏左边的图标，把"麦克风"改成允许，再点一次开始通话' : '没有找到麦克风（' + e.name + '）', true); }
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const node = ctx.createScriptProcessor(2048, 1, 1), quiet = ctx.createGain();
+  quiet.gain.value = 0;
+  node.onaudioprocess = (e) => callFrame(e.inputBuffer.getChannelData(0), ctx.sampleRate);
+  ctx.createMediaStreamSource(stream).connect(node); node.connect(quiet); quiet.connect(ctx.destination);
+  Object.assign(call, { on: true, ctx, stream, node, queue: [], spoken: new Set(), noise: 0.006 });
+  try { for (const m of (await voiceApi('log')).items || []) call.spoken.add(m.id); } catch (e) { /* 取不到就算了 */ }
+  $('voiceOpen').classList.add('on'); $('voiceOpenText').textContent = '挂断'; voiceTip('');
+  callListen(); voiceKey = ''; voicePolling();
+}
+function callStop() {
+  call.on = false;
+  try { if (call.audio) call.audio.pause(); if (window.speechSynthesis) speechSynthesis.cancel(); } catch (e) { /* 没在播 */ }
+  try { call.node.onaudioprocess = null; for (const t of call.stream.getTracks()) t.stop(); call.ctx.close(); } catch (e) { /* 已经关了 */ }
+  Object.assign(call, { state: 'idle', ctx: null, stream: null, node: null, audio: null, queue: [], speaking: false });
+  $('voiceOpen').classList.remove('on'); $('voiceOpenText').textContent = '开始通话'; $('voiceState').hidden = true;
+  voiceTip('已挂断。已经交出去的事会继续做，结果在"通话记录"里。'); voicePolling();
+}
+$('voiceOpen').addEventListener('click', (e) => { e.stopPropagation(); if (call.on) callStop(); else callStart(); });
+$('voiceHist').addEventListener('click', (e) => { e.stopPropagation(); voiceShow = !voiceShow; voiceKey = ''; voicePolling(); });
+$('voiceClear').addEventListener('click', async () => { if (!confirm('清空通话记录吗？已经交出去的事不受影响。')) return; try { await voiceApi('clear', { body: '{}' }); voiceKey = ''; await voiceLoad(); } catch (e) { voiceTip(e.message, true); } });
+$('voiceText').addEventListener('keydown', async (e) => {
+  if (e.key !== 'Enter' || e.isComposing) return;
+  e.preventDefault();
+  if (voiceBusy) return voiceTip('CEO Agent 还在处理上一句，等一下再发', true);
+  const text = $('voiceText').value;
+  if (call.on && call.state === 'listen') voiceState('think');
+  if (await voiceSend(text)) $('voiceText').value = ''; else if (call.on) callListen();
+});
+window.addEventListener('pagehide', () => { if (call.on) callStop(); });
+// ---- 右上角：CEO Agent 做过的事 ----
+let ceoLogKey = '', ceoLogData = [], ceoLogFilter = 'act';
+const CEO_VERB = { allow: '批准了', deny: '拒绝了', ask: '转给你决定：', brief: '', fallback: '' };
+function paintCeoLog(list) {
+  if (!Array.isArray(list)) return;
+  const key = JSON.stringify([list.length, list[0] && list[0].at, ceoLogFilter]);
+  if (key === ceoLogKey) return;
+  ceoLogKey = key; ceoLogData = list;
+  $('ceoLogCard').hidden = false;
+  const shown = list.filter((e) => ceoLogFilter === 'all' || ['allow', 'deny', 'ask'].includes(e.verdict));
+  const day = Date.now() - 86400000, acts = list.filter((e) => ['allow', 'deny', 'ask'].includes(e.verdict) && e.at >= day);
+  $('ceoLogCount').textContent = acts.length ? `近 24 小时审批 ${acts.length} 次 · 拒绝 ${acts.filter((e) => e.verdict === 'deny').length} 次` : '';
+  const tm = (t) => { const x = new Date(t), p = (n) => String(n).padStart(2, '0'); return `${x.getMonth() + 1}/${x.getDate()} ${p(x.getHours())}:${p(x.getMinutes())}`; };
+  $('ceoLogList').innerHTML = shown.length ? shown.map((e) => `<div class="it"><span class="tm">${tm(e.at)}</span><span class="tx">` + (CEO_VERB[e.verdict]
+    ? `<b class="v-${e.verdict}">${CEO_VERB[e.verdict]}</b>来自 <b>${esc(e.who || '某个 Agent')}</b> 的<span class="what">${esc(e.what)}</span>`
+    : `<b class="v-${esc(e.verdict)}">${esc(e.what)}</b>`) + `</span>${e.reason ? `<span class="why">${e.verdict === 'brief' ? '' : e.verdict === 'fallback' ? '原因：' : '理由：'}${esc(e.reason)}</span>` : ''}</div>`).join('')
+    : `<div class="none">${ceoLogFilter === 'act' ? '还没有审批记录。Agent 或 Bot 提交命令、申请密码或扩展时，CEO Agent 的决定会记在这里。' : '还没有记录。'}</div>`;
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('[data-ceof]');
+  if (!b) return;
+  ceoLogFilter = b.dataset.ceof;
+  for (const x of document.querySelectorAll('[data-ceof]')) x.classList.toggle('on', x === b);
+  paintCeoLog(ceoLogData);
+});
+let botKey = '', botSeen = null, botShotAt = 0, extInfo = null, extSeen = null;
+// Bot 申请扩展的过程：申请（Bot → CEO Agent）、没批准（CEO Agent → Bot）、批准（CEO Agent 找开发者）、装完（回到 Bot）。刚打开页面时只记下，不画。
+function extEvents(list) {
+  const first = extSeen === null;
+  if (first) extSeen = new Set();
+  const once = (k) => { if (extSeen.has(k)) return false; extSeen.add(k); return !first; };
+  for (const r of list) {
+    const steps = [];
+    if (once(r.id + ':new')) steps.push(() => upFrom('bot'));
+    if (r.state === 'denied' && once(r.id + ':deny')) steps.push(() => downTo('bot'));
+    if (r.review && r.review.verdict === 'allow' && once(r.id + ':allow')) steps.push(() => lineProbe('right'));
+    if ((r.state === 'installed' || r.state === 'failed') && once(r.id + ':done')) steps.push(() => downTo('bot'));
+    if (steps.length) (async () => { for (const s of steps) await s(); })();
+  }
+}
+async function loadExtInfo() {
+  try {
+    const res = await fetch('/bots/api/toolreqs');
+    if (!res.ok) return;
+    const d = await res.json();
+    extEvents(d.requests || []);
+    const ins = d.installed || {}, live = (d.requests || []).filter((r) => ['waiting', 'approved', 'installing'].includes(r.state));
+    const next = { count: (ins.skills || []).length + (ins.mcp || []).length + new Set((ins.packages || []).flatMap((p) => p.packages || [])).size, live: live.length, liveText: live[0] ? ({ waiting: 'CEO Agent 正在审批：', approved: '等开发者安装：', installing: '开发者正在安装：' })[live[0].state] + live[0].name : '' };
+    if (JSON.stringify(next) !== JSON.stringify(extInfo)) { extInfo = next; botKey = ''; }
+  } catch (e) { /* 本地预览或 Bot 服务不在线 */ }
+}
+setInterval(loadExtInfo, 3000);
+setTimeout(loadExtInfo, 1200);
+function paintBots(d) {
+  // 光点：某个 Bot 开始干活（你 → CEO Agent → Bot）、干完了（Bot → CEO Agent → 你）。刚打开页面时只记下，不画。
+  const first = botSeen === null;
+  if (first) botSeen = new Map();
+  for (const b of d ? d.bots : []) {
+    const prev = botSeen.get(b.id);
+    botSeen.set(b.id, b.running);
+    if (first || prev === b.running) continue;
+    if (b.running) (async () => { await fromBoss(); await downTo('bot'); })();
+    else if (prev) (async () => { await upFrom('bot'); await toBoss(); })();
+  }
+  const key = JSON.stringify(d);
+  if (key === botKey) return;
+  botKey = key;
+  if (!d) { $('botBig').textContent = '读不到'; $('botSub').textContent = 'Bot 服务没有响应'; $('botDot').className = 'dot'; $('botRows').innerHTML = ''; setTrunks(); return; }
+  const busy = d.bots.filter((b) => b.running).length;
+  $('botBig').textContent = `${d.bots.length} 个 Bot`;
+  $('botSub').textContent = busy ? `${busy} 个正在干活` : '都空闲';
+  $('botDot').className = 'dot ' + (d.computer.ok ? (busy ? 'warn' : 'ok') : 'bad');
+  setTag('bot', busy ? '↓ 正在干活' : IDLE.bot, busy ? cssVar('--c-bot') : '');
+  const shot = $('botShot');
+  $('botRows').innerHTML = d.bots.map((b) => `<div class="row">
+      <div class="l1"><span>${esc(b.name)}</span><span class="ms"><button class="btn" data-term="bots" data-bot="${b.id}" data-open-only>对话</button></span></div>
+      <div class="l2"><span>${esc(showModel(b.model))}</span></div>
+      <div class="l2"><span style="${b.running ? 'color:var(--c-bot)' : ''}">${esc(b.running ? b.status : b.preview || '还没有对话')}</span></div>
+    </div>`).join('') + `<div class="row">
+      <div class="l1"><span>Bot 的电脑</span><span class="ms"><button class="btn" data-term="deskpc" data-open-only>看屏幕</button></span></div>
+      <div class="l2"><span>${d.computer.ok ? '在线 · 带桌面和浏览器' + (d.computer.tabs ? ` · ${d.computer.tabs} 个标签页` : '') : '连不上'}</span></div>
+      <img class="botshot" id="botShot" alt="Bot 电脑的屏幕" data-term="deskpc" data-open-only ${shot && shot.src ? `src="${shot.src}"` : ''} ${d.computer.ok ? '' : 'hidden'}>
+    </div><div class="row">
+      <div class="l1"><span>扩展</span><span class="ms"><button class="btn" data-term="bots" data-open-only>查看</button></span></div>
+      <div class="stat">${extInfo ? num(extInfo.count) : '—'}<small>项已安装</small></div>
+      <div class="l2"><span style="${extInfo && extInfo.live ? 'color:var(--c-bot)' : ''}">${esc(extInfo && extInfo.liveText ? extInfo.liveText : 'Bot 申请 → CEO 审批 → 开发者安装')}</span></div>
+    </div><div class="row">
+      <div class="l1"><span>新建 Bot</span><span class="ms"><button class="btn" data-term="bots" data-open-only>去新建</button></span></div>
+      <div class="l2"><span>每个 Bot 可以用不同的模型</span></div>
+    </div>`;
+  botShotAt = 0;
+  setTrunks();
+}
+async function loadBots() {
+  try {
+    const res = await fetch('/bots/api/state');
+    if (!res.ok) throw new Error(res.status);
+    const d = await res.json();
+    paintBots({ bots: d.bots.map((b) => ({ id: b.id, name: b.name, model: b.model, running: b.running, status: b.status, preview: b.preview })), computer: { ok: d.computer.ok, tabs: d.computer.tabs } });
+    // 屏幕缩略图：有 Bot 在干活时 6 秒换一张，否则 40 秒换一张；页面不在前台就不换。
+    const img = $('botShot'), busy = d.bots.some((b) => b.running);
+    if (img && d.computer.ok && !document.hidden && Date.now() - botShotAt > (busy ? 6000 : 40000)) { botShotAt = Date.now(); img.src = '/bots/api/screen?t=' + botShotAt; }
+  } catch (e) { if (location.protocol !== 'file:') paintBots(null); }
+}
+setInterval(loadBots, 3000);
+setTimeout(loadBots, 900);
+setInterval(loadOps, 3000);
+setTimeout(loadOps, 500);
+// 卡片上显示任务概况（进行中几个、最近一个是什么）。读不到就不显示，不影响别的。
+async function loadTaskInfo() {
+  const el = $('agentTaskInfo');
+  if (!el) return;
+  try {
+    const res = await fetch('/tasks/api/list');
+    if (!res.ok) return;
+    const list = (await res.json()).tasks || [];
+    taskEvents(list);
+    const busy = list.filter((t) => t.status === 'running' || t.status === 'queued').length;
+    const last = list[0];
+    const word = { done: '已完成', failed: '失败', stopped: '已停止', running: '进行中', queued: '排队中' };
+    el.textContent = busy ? `${busy} 个任务进行中` : last ? `最近：${last.prompt.slice(0, 28)}${last.prompt.length > 28 ? '…' : ''}（${word[last.status]}）` : '还没有发过任务';
+    el.style.color = busy ? 'var(--c-agent)' : '';
+  } catch (e) { /* 本地预览或 Agent 离线时没有这个接口 */ }
+}
+const term = $('term');
+let pane = 'term';
+function showPane(name) {
+  pane = PANES[name] ? name : 'term';
+  for (const k in PANES) PANES[k].frame.hidden = k !== pane;
+  for (const b of document.querySelectorAll('.tab')) b.classList.toggle('on', b.dataset.pane === pane);
+  const p = PANES[pane];
+  if (!p.frame.getAttribute('src')) p.frame.src = p.url;
+  $('termHint').textContent = p.hint;
+  pref.set('termPane', pane);
+  setTimeout(() => p.frame.focus(), 100);
+}
+const pref = {
+  get(k) { try { return localStorage.getItem('dispatch.' + k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem('dispatch.' + k, v); } catch (e) { /* 隐私模式下存不了，不影响使用 */ } },
+};
+function setTermMax(on) {
+  term.classList.toggle('max', on);
+  $('termMax').textContent = on ? '还原' : '最大化';
+  pref.set('termMax', on ? '1' : '0');
+}
+function openTerm(name) {
+  term.hidden = false;
+  document.body.classList.add('term-open');
+  showPane(name || pane); // 第一次打开才加载；之后收起再展开、切换标签都不重连
+  pref.set('termOpen', '1');
+}
+function closeTerm() {
+  term.hidden = true;
+  document.body.classList.remove('term-open');
+  pref.set('termOpen', '0');
+}
+$('termClose').addEventListener('click', closeTerm);
+$('termMax').addEventListener('click', () => setTermMax(!term.classList.contains('max')));
+$('termReload').addEventListener('click', () => { PANES[pane].frame.src = PANES[pane].url; });
+document.addEventListener('click', (e) => {
+  const tab = e.target.closest && e.target.closest('.tab[data-pane]');
+  if (tab) return showPane(tab.dataset.pane);
+  // 卡片上的按钮：面板没开就打开对应标签；已经开着同一个标签就收起；开着另一个就切过去。
+  const t = e.target.closest && e.target.closest('[data-term]');
+  if (!t) return;
+  e.preventDefault();
+  const want = t.dataset.term || 'term';
+  // 带了 data-path 的按钮：让文件页直接打开那个文件夹。
+  // Bot 列里某个 Bot 的"对话"按钮：让 Bot 页直接切到那个 Bot。
+  if (want === 'bots' && t.dataset.bot && PANES.bots.frame.getAttribute('src') !== '/bots/?bot=' + t.dataset.bot) PANES.bots.frame.src = '/bots/?bot=' + t.dataset.bot;
+  if (want === 'files' && t.dataset.path) {
+    PANES.files.frame.src = '/files/?path=' + encodeURIComponent(t.dataset.path);
+    if (term.hidden) openTerm('files'); else showPane('files');
+    return;
+  }
+  if (term.hidden) openTerm(want); else if (pane === want && !('openOnly' in t.dataset)) closeTerm(); else showPane(want);
+  if (want === 'ops') $('opsAlert').hidden = true;
+  // "发邮件 → 设置"：让审批页直接展开 Gmail 配置表单。
+  if (want === 'ops' && t.dataset.mail) PANES.ops.frame.src = '/ops/#mail' + Date.now();
+});
+// 拖动上边缘调整高度（20%–90% 屏高）。
+$('termGrip').addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  term.classList.add('drag');
+  const move = (ev) => {
+    const vh = Math.max(20, Math.min(90, Math.round((1 - ev.clientY / innerHeight) * 100)));
+    document.documentElement.style.setProperty('--term-h', vh + 'vh');
+    pref.set('termH', String(vh));
+  };
+  const up = () => { term.classList.remove('drag'); removeEventListener('pointermove', move); removeEventListener('pointerup', up); };
+  addEventListener('pointermove', move);
+  addEventListener('pointerup', up);
+});
+// 恢复上次的状态：刷新页面后终端还在原来的位置。
+if (pref.get('termH')) document.documentElement.style.setProperty('--term-h', pref.get('termH') + 'vh');
+if (pref.get('termMax') === '1') setTermMax(true);
+if (pref.get('termPane')) pane = PANES[pref.get('termPane')] ? pref.get('termPane') : 'term';
+if (pref.get('termOpen') === '1') openTerm(pane);
+
+// ---- 定时任务 Agent 和 自动化 Agent 的卡片 ----
+// 数据来自专用 Agent 那边的任务服务；它离线或读不到时，两张卡片显示"读不到"。
+const TASK_WORD = { done: '已完成', failed: '失败', stopped: '已停止', running: '进行中', queued: '排队中' };
+const DAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+const dayClock = (t) => { if (!t) return '–'; const d = new Date(t), n = new Date(); return (d.toDateString() === n.toDateString() ? '' : (d.getMonth() + 1) + '/' + d.getDate() + ' ') + hhmm(t); };
+function whenText(s) {
+  if (s.kind === 'interval') return s.everyMinutes % 1440 === 0 ? '每隔 ' + s.everyMinutes / 1440 + ' 天' : s.everyMinutes % 60 === 0 ? '每隔 ' + s.everyMinutes / 60 + ' 小时' : '每隔 ' + s.everyMinutes + ' 分钟';
+  if (s.kind === 'weekly') return '每' + s.weekdays.map((d) => DAY_NAMES[d]).join('、') + ' ' + s.time;
+  return '每天 ' + s.time;
+}
+let autoKey = '';
+// 自动化 Agent 一张卡片里放两类：到点触发的定时任务，和告警触发的规则。
+function paintAuto(d) {
+  const key = JSON.stringify(d);
+  if (key === autoKey) return;
+  autoKey = key;
+  if (!d) {
+    $('autoBig').textContent = '读不到'; $('autoSub').textContent = '专用 Agent 不在线时，这里没有数据'; $('autoDot').className = 'dot'; $('autoRows').innerHTML = '';
+    setTrunks();
+    return;
+  }
+  const head = (pane, title, n, word) => `<div class="row"><div class="l1"><span>${title}</span><span class="ms"><button class="btn" data-term="${pane}">管理</button></span></div><div class="l2"><span>${n ? '共 ' + n + ' ' + word : '还没有，点"管理"新增'}</span></div></div>`;
+  const last = (l) => l ? `<span>上次 ${dayClock(l.at)} · ${TASK_WORD[l.status] || ''}</span>` : '<span>还没运行过</span>';
+  const on = d.schedules.filter((s) => s.enabled);
+  const ron = d.rules.filter((r) => r.enabled);
+  const next = on.filter((s) => s.nextRunAt).sort((a, b) => a.nextRunAt - b.nextRunAt)[0];
+  const fired = d.rules.filter((r) => r.lastFiredAt).sort((a, b) => b.lastFiredAt - a.lastFiredAt)[0];
+  $('autoBig').textContent = `${on.length + ron.length} 项启用`;
+  $('autoSub').textContent = next ? `下次 ${dayClock(next.nextRunAt)} · ${next.name}` : fired ? `最近触发 ${dayClock(fired.lastFiredAt)} · ${fired.name}` : ron.length ? '在等新告警出现' : '定时任务和告警规则都没有启用';
+  $('autoDot').className = 'dot ' + (on.length + ron.length ? 'ok' : '');
+  $('autoRows').innerHTML =
+    head('sched', '定时任务', d.schedules.length, '个') + d.schedules.slice(0, 5).map((s) => `<div class="row">
+      <div class="l1 one"><span class="dot ${s.enabled ? 'ok' : ''}"></span><span class="host" title="${esc(s.prompt)}">${esc(s.name)}</span><span class="up">${esc(whenText(s))}</span></div>
+      <div class="l2">${s.enabled ? `<span>下次 ${dayClock(s.nextRunAt)}</span>` : '<span>已停用</span>'}${last(s.last)}</div>
+    </div>`).join('')
+    + head('rules', '告警规则', d.rules.length, '条') + d.rules.slice(0, 5).map((r) => `<div class="row">
+      <div class="l1 one"><span class="dot ${r.enabled ? 'ok' : ''}"></span><span class="host" title="${esc(r.prompt)}">${esc(r.name)}</span><span class="up">触发 ${r.fireCount || 0} 次</span></div>
+      <div class="l2"><span>${r.keywords ? '告警含 ' + esc(r.keywords) : '任何告警'}${r.level === 'danger' ? ' · 只限严重' : ''}</span>${r.enabled ? '' : '<span>已停用</span>'}</div>
+    </div>`).join('');
+  setTrunks();
+}
+async function loadAutoInfo(agent) {
+  if (!agent) return paintAuto(null);
+  try {
+    const res = await fetch('/tasks/api/auto/summary');
+    if (!res.ok) throw new Error(res.status);
+    const d = await res.json();
+    paintAuto({ schedules: d.schedules, rules: d.rules });
+  } catch (e) { paintAuto(null); }
+}
+
+// ---- 存储：专用 Agent 的四个库 ----
+// ---- Claude 额度看板 ----
+let usageData = null;
+const ago = (t) => { const m = Math.floor((Date.now() - t) / 60000); return m < 1 ? '刚刚' : m < 60 ? m + ' 分钟前' : Math.floor(m / 60) + ' 小时前'; };
+function paintUsage() {
+  const d = usageData;
+  if (!d) return;
+  $('usageCard').hidden = false;
+  $('usagePlan').hidden = !d.plan; $('usagePlan').textContent = d.plan || '';
+  const worst = d.items.reduce((n, x) => Math.max(n, x.percent), 0);
+  $('usageDot').className = 'dot ' + (!d.ok && !d.items.length ? '' : worst >= 90 ? 'bad' : worst >= 70 ? 'warn' : 'ok');
+  $('usageRows').innerHTML = d.items.length ? d.items.map((x) => `<div class="u">
+      <div class="t"><span>${esc(x.label)}</span><b>${x.percent}%</b></div>
+      <div class="track"><div class="fill ${x.percent >= 90 ? 'bad' : x.percent >= 70 ? 'warn' : ''}" style="width:${Math.min(100, Math.max(x.percent, x.percent > 0 ? 1.5 : 0))}%"></div></div>
+      <div class="r">${x.resets ? '重置时间：' + esc(x.resets) : ''}</div>
+    </div>`).join('') : `<div class="u"><div class="r ${d.ok ? '' : 'err'}">${esc(d.error || '还没有数据')}</div></div>`;
+  $('usageAt').className = !d.ok && d.items.length ? 'err' : '';
+  $('usageAt').textContent = d.refreshing ? '正在读取 /usage…' : !d.ok && d.items.length ? `这次没读到（${d.error}），显示的是 ${ago(d.at)} 的数据` : d.at ? `${ago(d.at)}更新 · 每 ${d.everyMinutes} 分钟自动刷新` : '';
+  $('usageRefresh').disabled = Boolean(d.refreshing);
+}
+async function loadUsage() {
+  try {
+    const res = await fetch('/tasks/api/usage');
+    if (!res.ok) return;
+    usageData = await res.json();
+    paintUsage();
+  } catch (e) { /* 专用 Agent 不在线或本地预览时没有这个接口 */ }
+}
+$('usageRefresh').onclick = async () => {
+  $('usageRefresh').disabled = true;
+  try { await fetch('/tasks/api/usage/refresh', { method: 'POST', headers: { 'X-Files-Action': '1', 'Content-Type': 'application/json' }, body: '{}' }); } catch (e) { /* 下一轮自动刷新 */ }
+  for (const ms of [1500, 9000, 16000, 24000]) setTimeout(loadUsage, ms);
+};
+setInterval(loadUsage, 30000);
+setTimeout(loadUsage, 800);
+
+let storeKey = '', ruleLib = null, lastStore = null, vaultLib = null;
+async function loadVaultLib() {
+  try {
+    const res = await fetch('/ops/api/vault');
+    if (!res.ok) return;
+    const d = await res.json();
+    const day = Date.now() - 86400000;
+    vaultLib = { count: d.entries.length, asked: d.log.filter((r) => r.createdAt >= day).length, denied: d.log.filter((r) => r.createdAt >= day && r.status === 'denied').length };
+    if (lastStore) paintStore(lastStore);
+  } catch (e) { /* 本地预览没有这个接口 */ }
+}
+setInterval(loadVaultLib, 20000);
+setTimeout(loadVaultLib, 1700);
+async function loadRuleLib() {
+  try {
+    const res = await fetch('/ops/api/rules');
+    if (!res.ok) return;
+    ruleLib = await res.json();
+    if (lastStore) paintStore(lastStore);
+  } catch (e) { /* 本地预览没有这个接口 */ }
+}
+setInterval(loadRuleLib, 20000);
+setTimeout(loadRuleLib, 1500);
+function paintStore(d) {
+  lastStore = d;
+  const key = JSON.stringify([d, ruleLib, vaultLib]);
+  if (key === storeKey) return;
+  storeKey = key;
+  if (!d) {
+    $('storeBig').textContent = '读不到'; $('storeSub').textContent = '专用 Agent 不在线时，这里没有数据'; $('storeDot').className = 'dot'; $('storeRows').innerHTML = '';
+    setTrunks();
+    return;
+  }
+  $('storeBig').textContent = `${d.stores.length + 2} 个库`;
+  $('storeSub').textContent = '专用 Agent 的资料与能力';
+  $('storeDot').className = 'dot ok';
+  $('storeRows').innerHTML = d.stores.map((x) => `<div class="row">
+      <div class="l1"><span>${esc(x.name)}</span><span class="ms">${x.key === 'skills' ? '<button class="btn" data-term="skillmk">市场</button> ' : x.key === 'mcp' ? '<button class="btn" data-term="mcpmk">市场</button> ' : x.key === 'components' ? '<button class="btn" data-term="complib">查看</button> ' : ''}<button class="btn" data-term="files" data-path="${esc(x.path)}">打开</button></span></div>
+      <div class="stat">${num(x.count)}<small>${esc(x.unit)}</small></div>
+      <div class="l2"><span>${esc(x.note || x.desc)}</span></div>
+    </div>`).join('') + `<div class="row">
+      <div class="l1"><span>规则库</span><span class="ms"><button class="btn" data-term="rulelib">管理</button></span></div>
+      <div class="stat">${ruleLib ? num(ruleLib.rules.filter((x) => x.enabled).length) : '—'}<small>条禁止规则</small></div>
+      <div class="l2"><span>${ruleLib ? (ruleLib.ceoReview ? '命令先经 CEO Agent 审核' : 'CEO Agent 审核已关闭') + (ruleLib.blockedWeek ? ` · 近 7 天拦下 ${ruleLib.blockedWeek} 条` : '') : '禁止 Agent 执行的命令'}</span></div>
+    </div><div class="row">
+      <div class="l1"><span>专用密码 Key</span><span class="ms"><button class="btn" data-term="vault">管理</button></span></div>
+      <div class="stat">${vaultLib ? num(vaultLib.count) : '—'}<small>条密码</small></div>
+      <div class="l2"><span>${vaultLib && vaultLib.asked ? `近 24 小时申请 ${vaultLib.asked} 次` + (vaultLib.denied ? ` · 拒绝 ${vaultLib.denied} 次` : '') : '只有 CEO Agent 批准才能调用'}</span></div>
+    </div>`;
+  setTrunks();
+}
+async function loadStorage(agent) {
+  if (!agent) return paintStore(null);
+  try {
+    const res = await fetch('/tasks/api/storage');
+    if (!res.ok) throw new Error(res.status);
+    paintStore(await res.json());
+  } catch (e) { paintStore(null); }
+}
+
+// ---- CEO Agent 两侧的线路 Agent ----
+function renderLines(lines) {
+  for (const side of ['left', 'right']) {
+    const cap = side === 'left' ? 'Left' : 'Right';
+    const l = (lines || []).find((x) => x.side === side);
+    $('line' + cap).classList.toggle('off', !l);
+    if (!l) continue;
+    $('line' + cap + 'Name').textContent = l.name;
+    $('line' + cap + 'Dot').className = 'dot ' + (l.ok === true ? 'ok' : l.ok === false ? 'bad' : '');
+    $('line' + cap + 'Meta').textContent = [showModel(l.model), l.at ? hhmm(l.at) + ' 自检' : (l.pending ? '正在自检…' : '等待第一次自检'), l.ok && l.ms ? '响应 ' + (l.ms / 1000).toFixed(1) + ' 秒' : ''].filter(Boolean).join(' · ');
+    const t = $('line' + cap + 'Text');
+    t.textContent = l.ok === false ? '这条线路调不通：' + l.error : (l.note || '');
+    t.hidden = l.ok !== false && !l.note;
+    t.className = 'brief-text small' + (l.ok === false ? ' err' : '');
+  }
+}
+
+function renderAgent(a) {
+  if (!a) { $('agentBig').textContent = '未配置'; $('agentSub').textContent = ''; $('agentDot').className = 'dot'; $('agentRows').innerHTML = ''; return; }
+  const up = a.up === true, unknown = a.up === null;
+  $('agentBig').textContent = unknown ? '–' : up ? '在线' : '离线';
+  $('agentSub').textContent = unknown ? '等待第一次巡检' : up ? '独立容器 · 可以写代码、跑脚本' : (a.error || '');
+  $('agentDot').className = 'dot ' + (unknown ? '' : up ? 'ok' : 'warn');
+  // 这几行内容固定，只在状态变化时重画；任务概况那一小行单独更新。
+  const key = 'v5|' + a.up;
+  if ($('agentRows').dataset.key === key) { if (up) loadTaskInfo(); return; }
+  $('agentRows').dataset.key = key;
+  const off = '<span style="color:var(--mute)">不可用</span>';
+  setTimeout(loadTaskInfo, 0);
+  $('agentRows').innerHTML = `
+    <div class="row">
+      <div class="l1"><span>任务</span><span class="ms">${up ? '<button class="btn" data-term="tasks">发任务</button>' : off}</span></div>
+      <div class="l2"><span>写一句话交给它，在后台做完后看结果</span></div>
+      <div class="l2"><span id="agentTaskInfo"></span></div>
+    </div>
+    <div class="row">
+      <div class="l1"><span>终端</span><span class="ms">${up ? '<button class="btn" data-term="term">打开终端</button>' : off}</span></div>
+      <div class="l2"><span>在本页底部打开，直接和 Agent 对话；刷新或关掉页面，会话都还在</span></div>
+    </div>
+    <div class="row">
+      <div class="l1"><span>文件</span><span class="ms">${up ? '<button class="btn" data-term="files">打开文件夹</button>' : off}</span></div>
+      <div class="l2"><span>直接查看 Agent 隔离环境里的工作目录，上传、下载、整理文件</span></div>
+    </div>
+    <div class="row">
+      <div class="l1"><span>发邮件</span><span class="ms"><button class="btn" data-term="ops" data-mail="1">设置</button></span></div>
+      <div class="l2"><span id="agentMailInfo">Gmail：读取中…</span></div>
+    </div>
+    <div class="row">
+      <div class="l1"><span>审批</span><span class="ms"><button class="btn" data-term="ops">审批</button></span></div>
+      <div class="l2"><span>它想在服务器上执行的命令、没设免审批的邮件，都要你批准后才会执行</span></div>
+    </div>`;
+}
+
+function renderRelay(r) {
+  if (!r) { $('relayBig').textContent = '未配置'; $('relaySub').textContent = ''; $('relayDot').className = 'dot'; $('relayRows').innerHTML = ''; return; }
+  if (!r.ok) {
+    $('relayBig').textContent = '读不到数据';
+    $('relaySub').textContent = r.name;
+    $('relayDot').className = 'dot bad';
+    $('relayRows').innerHTML = `<div class="row bad"><div class="l2">${esc(r.error || '')}</div></div>`;
+    return;
+  }
+  $('relayBig').innerHTML = `<a href="${esc(r.url)}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">${esc(r.name)}</a>`;
+  $('relaySub').textContent = r.stale ? `数据已过期，最后更新于 ${hhmm(r.collectedAt)}` : `用量每分钟更新 · ${hhmm(r.collectedAt)}`;
+  $('relayDot').className = 'dot ' + (r.stale ? 'warn' : 'ok');
+  const item = (label, value, unit, note) => `<div class="row">
+    <div class="l1"><span style="color:var(--sub)">${label}</span></div>
+    <div class="stat">${value}${unit ? `<small>${unit}</small>` : ''}</div>
+    <div class="l2">${note}</div></div>`;
+  $('relayRows').innerHTML =
+    item('24 小时 Token', short(r.tokens), '', `<span>输入 ${short(r.inputTokens)}</span><span>输出 ${short(r.outputTokens)}</span><span>缓存 ${short(r.cacheTokens)}</span><span>总计 ${short(r.totalTokens)}</span>`) +
+    item('24 小时请求', num(r.requests), '次', `<span>总计 ${num(r.totalRequests)}</span>`) +
+    item('性能指标', `${num(r.rpm)}<small>RPM</small> &nbsp;${num(r.tpm)}`, 'TPM', `<span>最近 5 分钟共 ${num(r.req5m)} 次请求</span>`) +
+    item('平均响应', secs(r.todayAvgMs === null || r.todayAvgMs === undefined ? r.avgMs : r.todayAvgMs), 's', `<span>最近 24 小时的平均值</span><span>全部历史平均 ${secs(r.avgMs)}s</span>`);
+}
+
+const gb = (mb) => Math.round(mb / 1024 * 10) / 10;
+const bar = (pct) => `<div class="meter"><b class="${pct >= 85 ? 'hot' : ''}" style="width:${Math.max(0, Math.min(100, Math.round(pct)))}%"></b></div>`;
+const openServers = new Set();
+// 去掉型号里的"16-Core Processor"这类后缀：虚拟机分到的核数和物理 CPU 的核数不是一回事，留着容易误解。
+const cpuName = (s) => String(s || '未知 CPU').replace(/\s+\d+-Core Processor$/i, '').replace(/\s+Processor$/i, '').replace(/\((R|TM)\)/gi, '').trim();
+// 点击详情以外的地方，自动收起已展开的详情。
+document.addEventListener('click', (e) => {
+  for (const el of document.querySelectorAll('details.srv[open]')) {
+    if (!el.closest('.row').contains(e.target)) el.open = false;
+  }
+});
+function serverRow(s) {
+  // 页面上不显示 IP：用配置里的名字（没有就用主机名）加套餐标签来区分服务器。
+  const title = s.name || s.host || '服务器';
+  const plan = s.plan ? `<span class="chip plan">${esc(s.plan)}</span>` : '';
+  const ip = `<span class="host">${esc(title)}</span>${plan}`;
+  if (!s.configured) {
+    return `<div class="row"><div class="l1"><span class="dot"></span>${ip}<span class="ms" style="color:var(--mute)">未接入</span></div>
+      <div class="l2">还不能登录这台服务器，接入后显示配置和指标。</div></div>`;
+  }
+  if (!s.up) {
+    return `<div class="row bad"><div class="l1"><span class="dot bad"></span>${ip}<span class="ms">读不到数据</span></div>
+      <div class="l2">${esc(s.error || '')}</div></div>`;
+  }
+  const diskTotal = s.disks.reduce((n, x) => n + x.totalGb, 0);
+  const kv = [
+    ['IP', s.ip], ['主机名', s.host], ['套餐', s.plan], ['系统', s.os], ['内核', s.kernel], ['架构', s.arch], ['虚拟化', s.virt],
+    ['CPU', s.cpu], ['核心数', s.cores + ' 核'],
+    ['负载', `${s.load.map((n) => n.toFixed(2)).join(' / ')}（1 / 5 / 15 分钟）`],
+    ['内存', `共 ${gb(s.memTotalMb)} GB，已用 ${s.memPercent}%`],
+    ['交换分区', s.swapTotalMb ? `共 ${gb(s.swapTotalMb)} GB，已用 ${s.swapPercent}%` : '未启用'],
+    ['进程数', s.procs], ['已运行', s.uptimeDays + ' 天'],
+  ].filter(([, v]) => v !== undefined && v !== null && v !== '');
+  const disks = s.disks.map((x) => `<dt>磁盘 ${esc(x.mount)}</dt><dd>${x.usedGb} / ${x.totalGb} GB（${x.percent}%）${x.type ? ' · ' + esc(x.type) : ''}${bar(x.percent)}</dd>`).join('');
+  return `<div class="row">
+    <div class="l1 one"><span class="dot ok"></span><span class="host" title="主机名：${esc(s.host || '')}">${esc(title)}</span>${plan}${s.mode === 'local' ? '<span class="chip">本机</span>' : ''}<span class="up">已运行 ${s.uptimeDays} 天</span></div>
+    <div class="l2"><span>${esc(cpuName(s.cpu))}</span><span>${s.cores} 核</span><span>${gb(s.memTotalMb)} GB 内存</span><span>${diskTotal} GB 磁盘</span><span>${esc(s.os || '')}</span></div>
+    <div class="mini">
+      <span>负载</span>${bar(s.load[0] / s.cores * 100)}<span class="val">${s.load[0].toFixed(2)}</span>
+      <span>内存</span>${bar(s.memPercent)}<span class="val">${s.memPercent}%</span>
+      <span>磁盘</span>${bar(s.diskPercent)}<span class="val">${s.diskPercent}%</span>
+    </div>
+    <details class="srv" data-ip="${esc(s.ip)}"${openServers.has(s.ip) ? ' open' : ''}>
+      <summary>详细配置</summary>
+      <dl class="kv">${kv.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}${disks}</dl>
+    </details>
+  </div>`;
+}
+// 记住哪些服务器的详情是展开的（页面每 15 秒重绘一次），并在展开/收起后重算主干高度。
+document.addEventListener('toggle', (e) => {
+  const el = e.target;
+  if (!el.matches || !el.matches('details.srv')) return;
+  if (el.open) openServers.add(el.dataset.ip); else openServers.delete(el.dataset.ip);
+  setTrunks();
+}, true);
+
+async function load(method) {
+  try {
+    const res = await fetch(method === 'POST' ? '/api/refresh' : '/api/status', { method: method || 'GET' });
+    if (res.status === 401) { location.href = '/login'; return; }
+    render(await res.json());
+  } catch (e) {
+    $('ceoLine').textContent = '连不上调度台后端，确认 node server.js 还在运行。';
+  }
+}
+$('refresh').addEventListener('click', async () => {
+  $('refresh').textContent = '巡视中…';
+  runComm(true);
+  await load('POST');
+  $('refresh').textContent = '立即巡视';
+});
+setInterval(() => { $('clock').textContent = new Date().toLocaleTimeString('zh-CN'); }, 1000);
+setInterval(load, 15000);
+load();
+</script>
+</body>
+</html>

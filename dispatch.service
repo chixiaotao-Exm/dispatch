@@ -1,0 +1,30 @@
+[Unit]
+Description=Dispatch console (site and server monitor)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# 用 systemd 分配的无权限临时用户运行，不是 root。
+DynamicUser=yes
+WorkingDirectory=/opt/dispatch
+ExecStart=/usr/bin/node /opt/dispatch/server.js
+Restart=always
+RestartSec=5
+# 只监听本机，由 nginx 反向代理对外提供访问。
+Environment=HOST=127.0.0.1
+Environment=PORT=4780
+# 没设访问密码时拒绝提供页面。
+Environment=REQUIRE_PASSWORD=1
+# 访问密码放在这个文件里（DASH_PASSWORD=...），用 set-password.sh 设置。
+EnvironmentFile=-/etc/dispatch/env
+# 采集其他服务器用的受限密钥，以凭据方式交给进程（进程本身读不到 /etc/dispatch）。
+LoadCredential=sshkey:/etc/dispatch/id_ed25519
+# 存档目录（/var/lib/dispatch）：今日巡视轮数、历史记录、最近一份简报。
+StateDirectory=dispatch
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

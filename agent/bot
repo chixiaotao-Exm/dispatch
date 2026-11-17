@@ -1,0 +1,64 @@
+#!/usr/bin/env node
+// bot：把一件事交给某个 Bot 去做。Bot 有一台带桌面和真浏览器的电脑，能点网页、看动态页面、截图、发布网页。
+// 你自己没有浏览器；需要"打开网页点一点""看看页面实际长什么样"这类事，就交给 Bot。
+// 用法：
+//   bot list                      看有哪些 Bot、各用什么模型、忙不忙
+//   bot ask <Bot名字> "任务说明"   交给它，等它做完，打印它的回答
+const http = require('http');
+
+const SOCKET = process.env.OPS_SOCKET || '/home/agent/.ops/ops.sock';
+const WHO = process.env.OPS_AGENT === 'auto' ? 'auto' : 'agent';
+const HELP = `用法：
+  bot list                       看有哪些 Bot、各用什么模型、忙不忙
+  bot ask <Bot名字> "任务说明"    把一件事交给它，等它做完，打印它的回答（最多等 20 分钟）
+说明：
+  - Bot 看不到你这边的对话和文件，任务说明要写全：背景、要它做什么、要它交回什么。
+  - Bot 的电脑和你的工作目录不相通。要它交回文件，就让它"发布成链接"，你再用 curl 下载。
+  - 不要把密码、密钥、主人的隐私资料写进任务说明里。
+  - 主人能在 Bot 的对话里看到你交给它的事。`;
+
+function call(method, path, body) {
+  return new Promise((resolve, reject) => {
+    const data = body ? Buffer.from(JSON.stringify(body)) : null;
+    const req = http.request({ socketPath: SOCKET, path, method, headers: data ? { 'Content-Type': 'application/json', 'Content-Length': data.length } : {} }, (res) => {
+      let s = '';
+      res.on('data', (c) => { s += c; });
+      res.on('end', () => { try { resolve({ status: res.statusCode, body: JSON.parse(s || '{}') }); } catch (e) { reject(new Error('审批服务返回了无法识别的内容')); } });
+    });
+    req.on('error', () => reject(new Error('连不上审批服务（' + SOCKET + '）。')));
+    if (data) req.write(data);
+    req.end();
+  });
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const say = (s) => process.stderr.write('[bot] ' + s + '\n');
+
+(async () => {
+  const argv = process.argv.slice(2);
+  const cmd = argv[0];
+  if (!cmd || cmd === '-h' || cmd === '--help' || cmd === 'help') { console.log(HELP); process.exit(cmd ? 0 : 2); }
+  if (cmd === 'list') {
+    const r = (await call('GET', '/bot/list')).body;
+    if (!(r.bots || []).length) { console.log(r.fresh ? '现在一个 Bot 都没有。请主人在调度台的 Bot 页里新建。' : '暂时读不到 Bot 列表（调度台可能刚重启），过一会儿再试。'); return; }
+    for (const b of r.bots) console.log(`${b.name}  （模型 ${b.model}）  ${b.busy ? '正在忙' : '空闲'}`);
+    return;
+  }
+  if (cmd !== 'ask' || argv.length < 3) { say('要写成：bot ask <Bot名字> "任务说明"'); console.log(HELP); process.exit(2); }
+  const bot = argv[1], text = argv.slice(2).join(' ');
+  const created = await call('POST', '/bot/ask', { bot, text, agent: WHO });
+  if (created.status !== 200) { say('没有交出去：' + (created.body.error || created.status)); process.exit(2); }
+  const id = created.body.id;
+  say(`已交给「${bot}」，等它做完…`);
+  let last = '';
+  for (;;) {
+    await sleep(2500);
+    const j = (await call('GET', '/bot/result?id=' + id)).body;
+    if (j.status && j.status !== last && j.state === 'running') { last = j.status; say(j.status); }
+    if (j.state === 'failed') { say('没有做成：' + (j.result || '原因不明')); process.exit(4); }
+    if (j.state === 'done') {
+      console.log(j.result || '（Bot 没有留下文字回答）');
+      if ((j.links || []).length) console.log('\nBot 给出的链接：\n' + j.links.join('\n'));
+      return;
+    }
+  }
+})().catch((e) => { say(e.message); process.exit(5); });

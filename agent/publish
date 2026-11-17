@@ -1,0 +1,85 @@
+#!/usr/bin/env node
+// publish：把工作目录里的一个文件或文件夹发布到公开网址，得到一个可以发给主人的链接。
+// 做法很简单：复制一份到 /workspace/public/<发布名>/，容器外面的只读网页服务会把它提供出去。
+// 用法：
+//   publish <文件或文件夹> [--name 名字]    发布，打印链接
+//   publish --list                          看已经发布了哪些
+//   publish --remove <发布名>               撤下一份
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+
+const PUB = process.env.PUBLISH_DIR || '/workspace/public';
+const BASES = (process.env.PUBLISH_URLS || 'https://bot.example.org/a,https://bot.example.com/a').split(',');
+const MAX_BYTES = 500 * 1024 * 1024, MAX_FILES = 5000;
+const SKIP = new Set(['node_modules', '__pycache__']);
+const say = (s) => process.stderr.write('[publish] ' + s + '\n');
+const die = (s, code) => { say(s); process.exit(code || 2); };
+const HELP = `用法：
+  publish <文件或文件夹> [--name 名字]   发布到公开网址，打印链接（文件夹里有 index.html 的话，链接打开就是它）
+  publish --list                         看已经发布了哪些
+  publish --remove <发布名>              撤下一份
+注意：发布出去的内容任何拿到链接的人都能打开，不需要登录。不要发布密码、密钥、主人的隐私资料。
+只能放静态内容（网页、图片、文档、压缩包等），不会运行服务端程序。`;
+const links = (slug, tail) => BASES.map((b) => b + '/' + encodeURIComponent(slug) + '/' + (tail ? encodeURIComponent(tail) : ''));
+
+const argv = process.argv.slice(2);
+if (!argv.length || argv[0] === '-h' || argv[0] === '--help') { console.log(HELP); process.exit(argv.length ? 0 : 2); }
+fs.mkdirSync(PUB, { recursive: true });
+
+if (argv[0] === '--list') {
+  const items = fs.readdirSync(PUB, { withFileTypes: true }).filter((e) => e.isDirectory() && !e.name.startsWith('.'));
+  if (!items.length) { console.log('还没有发布过任何内容。'); process.exit(0); }
+  for (const e of items) {
+    const st = fs.statSync(path.join(PUB, e.name));
+    console.log(e.name + '  （' + st.mtime.toISOString().slice(0, 16).replace('T', ' ') + ' UTC）\n    ' + links(e.name)[0]);
+  }
+  process.exit(0);
+}
+if (argv[0] === '--remove') {
+  const slug = argv[1] || '';
+  if (!/^[A-Za-z0-9_-]{1,80}$/.test(slug)) die('要给出发布名（publish --list 里第一列）。');
+  const dir = path.join(PUB, slug);
+  if (!fs.existsSync(dir)) die('没有这份发布：' + slug);
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log('已撤下：' + slug + '（链接不再能打开）');
+  process.exit(0);
+}
+
+let name = '';
+const i = argv.indexOf('--name');
+if (i >= 0) { name = argv[i + 1] || ''; argv.splice(i, 2); }
+if (argv.length !== 1) die('要给出一个文件或文件夹。\n' + HELP);
+const src = path.resolve(argv[0]);
+let st;
+try { st = fs.statSync(src); } catch (e) { die('找不到：' + src); }
+if (src === PUB || src.startsWith(PUB + path.sep)) die('它已经在发布目录里了。');
+
+// 先数一遍大小，太大的不发。
+let bytes = 0, files = 0;
+const walk = (p) => {
+  const s = fs.statSync(p);
+  if (s.isDirectory()) { for (const n of fs.readdirSync(p)) if (!n.startsWith('.') && !SKIP.has(n)) walk(path.join(p, n)); }
+  else if (s.isFile()) { bytes += s.size; files += 1; }
+  if (bytes > MAX_BYTES || files > MAX_FILES) die('内容太大了（上限 500 MB / 5000 个文件）。先精简一下，或者打成压缩包再发布。');
+};
+walk(src);
+if (!files) die('里面没有可以发布的文件。');
+
+const base = (name || path.basename(src, st.isFile() ? path.extname(src) : '')).replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'page';
+const slug = base + '-' + crypto.randomBytes(4).toString('hex');   // 带一段随机字符，别人猜不到链接
+const dest = path.join(PUB, slug);
+const filter = (p) => { const n = path.basename(p); return p === src || (!n.startsWith('.') && !SKIP.has(n)); };
+fs.mkdirSync(dest, { recursive: true });
+if (st.isDirectory()) fs.cpSync(src, dest, { recursive: true, dereference: true, filter });
+else fs.copyFileSync(src, path.join(dest, path.basename(src)));
+// 让外面的只读服务读得到。
+const open = (p) => { const s = fs.statSync(p); if (s.isDirectory()) { fs.chmodSync(p, 0o755); for (const n of fs.readdirSync(p)) open(path.join(p, n)); } else fs.chmodSync(p, 0o644); };
+open(dest);
+
+const isIndex = st.isFile() && /^index\.html?$/i.test(path.basename(src));
+const urls = links(slug, st.isDirectory() || isIndex ? '' : path.basename(src));
+say('已发布（' + files + ' 个文件）。任何拿到链接的人都能打开；撤下用：publish --remove ' + slug);
+if (st.isDirectory() && !fs.existsSync(path.join(dest, 'index.html'))) say('这个文件夹里没有 index.html，链接打开会是一个文件列表。');
+console.log('链接：' + urls[0]);
+console.log('备用链接：' + urls[1]);

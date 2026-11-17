@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>定时任务与自动化</title>
+<style>
+:root{--bg:#0d1017;--card:#151a24;--line:#263044;--text:#e8ecf3;--sub:#93a0b5;--mute:#5f6b80;--accent:#c6f24e;--bad:#ef5b5b;--ok:#34c38f;--warn:#f0a53a;--run:#5b9dff}
+body.rules{--accent:#e879f9}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 system-ui,"Microsoft YaHei",sans-serif;overflow:auto}
+.wrap{max-width:1000px;margin:0 auto;padding:14px 18px 40px}
+.note{color:var(--sub);font-size:13px;margin:0 0 12px}
+h2{font-size:13px;font-weight:400;color:var(--mute);margin:20px 0 8px;display:flex;align-items:center}
+h2 button{margin-left:auto}
+.it{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px}
+.it.on{border-color:color-mix(in srgb,var(--accent) 60%,var(--line))}
+.top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.top .nm{font-weight:600}
+.top .sp{flex:1}
+.when{font-size:13px;color:var(--accent)}
+.meta{font-size:12px;color:var(--mute);display:flex;gap:14px;flex-wrap:wrap;margin-top:4px}
+.pr{font-size:13px;color:var(--sub);white-space:pre-wrap;word-break:break-word;margin-top:6px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+button{background:transparent;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:4px 12px;font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}
+button:hover{border-color:var(--sub)}
+button.main{background:var(--accent);border-color:var(--accent);color:#10140a;font-weight:600}
+button.danger:hover{border-color:var(--bad);color:var(--bad)}
+.sw{position:relative;width:38px;height:22px;border-radius:11px;border:0;background:var(--line);padding:0;flex:none}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:var(--sub);transition:left .15s}
+.sw.on{background:var(--accent)}.sw.on::after{left:19px;background:#10140a}
+.st{font-size:12px;border-radius:6px;padding:0 7px;border:1px solid var(--line);color:var(--sub)}
+.st.done{color:var(--ok);border-color:var(--ok)}.st.failed{color:var(--bad);border-color:var(--bad)}.st.running,.st.queued{color:var(--run);border-color:var(--run)}.st.stopped{color:var(--warn);border-color:var(--warn)}
+form{background:var(--card);border:1px solid var(--accent);border-radius:12px;padding:14px;margin-bottom:10px;display:grid;gap:10px}
+label{display:grid;gap:4px;font-size:13px;color:var(--sub)}
+input,select,textarea{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font:inherit;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+textarea{min-height:90px;resize:vertical}
+.rowf{display:flex;gap:10px;flex-wrap:wrap;align-items:end}
+.rowf label{flex:1;min-width:140px}
+.days{display:flex;gap:6px;flex-wrap:wrap}
+.days label{display:flex;flex-direction:row;align-items:center;gap:4px;border:1px solid var(--line);border-radius:8px;padding:3px 9px;cursor:pointer;color:var(--text)}
+.acts{display:flex;gap:8px;justify-content:flex-end;align-items:center}
+#err{color:var(--bad);font-size:13px;margin-right:auto}
+.hint{font-size:12px;color:var(--mute)}
+.log{font-size:13px;color:var(--sub);border-bottom:1px solid color-mix(in srgb,var(--line) 55%,transparent);padding:6px 0;display:flex;gap:10px}
+.log time{color:var(--mute);white-space:nowrap;font-variant-numeric:tabular-nums}
+.empty{color:var(--mute);font-size:13px;padding:10px 0}
+#tip{color:var(--bad);font-size:13px;min-height:20px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="note" id="note"></p>
+  <div id="tip"></div>
+  <h2><span id="listTitle"></span><button class="main" id="addBtn"></button></h2>
+  <div id="formBox"></div>
+  <div id="list"></div>
+  <h2>最近的动静</h2>
+  <div id="log"></div>
+</div>
+<script>
+const VIEW = new URLSearchParams(location.search).get('view') === 'rules' ? 'rules' : 'schedules';
+const IS_RULES = VIEW === 'rules';
+document.body.classList.toggle('rules', IS_RULES);
+const API = '/tasks/api/auto';
+const KIND = IS_RULES ? 'rule' : 'schedule';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s === null || s === undefined ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const STATUS = { queued: '排队中', running: '进行中', done: '已完成', failed: '失败', stopped: '已停止' };
+const DAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+const clock = (t) => t ? new Date(t).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '–';
+$('note').textContent = IS_RULES
+  ? '自动化 Agent：调度台出现新告警、并且符合某条规则时，自动给专用 Agent 发一个任务（比如让它先排查原因）。发出去的任务和你手动发的一样，在"任务"页能看到；它要动服务器时同样需要你批准。'
+  : '定时任务 Agent：到点了自动给专用 Agent 发一个任务。发出去的任务和你手动发的一样，在"任务"页能看到；它要动服务器时同样需要你批准。时间按你电脑所在的时区（美国东部时间）算。';
+$('listTitle').textContent = IS_RULES ? '触发规则' : '定时任务';
+$('addBtn').textContent = IS_RULES ? '新增规则' : '新增定时任务';
+let data = { schedules: [], rules: [], log: [] };
+let editing = null;   // null = 没在编辑；'' = 新建；否则是正在编辑的 id
+let lastKey = '';
+
+async function post(route, params, body) {
+  const res = await fetch(API + route + (params ? '?' + new URLSearchParams(params) : ''), {
+    method: 'POST', headers: { 'X-Files-Action': '1', 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined,
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(j.error || '操作失败（' + res.status + '）');
+  return j;
+}
+function whenText(s) {
+  if (s.kind === 'interval') return s.everyMinutes % 1440 === 0 ? '每隔 ' + s.everyMinutes / 1440 + ' 天' : s.everyMinutes % 60 === 0 ? '每隔 ' + s.everyMinutes / 60 + ' 小时' : '每隔 ' + s.everyMinutes + ' 分钟';
+  if (s.kind === 'weekly') return '每' + s.weekdays.map((d) => DAYS[d]).join('、') + ' ' + s.time;
+  return '每天 ' + s.time;
+}
+const lastTag = (l) => l ? '<span>上次：' + clock(l.at) + ' <span class="st ' + l.status + '">' + STATUS[l.status] + '</span></span>' : '<span>还没运行过</span>';
+function renderList() {
+  const items = IS_RULES ? data.rules : data.schedules;
+  const key = JSON.stringify(items) + '|' + JSON.stringify(data.log.slice(0, 20));
+  if (key === lastKey) return;
+  lastKey = key;
+  $('list').innerHTML = items.length ? items.map((s) => {
+    const head = '<div class="top"><button class="sw' + (s.enabled ? ' on' : '') + '" data-toggle="' + esc(s.id) + '" title="' + (s.enabled ? '已启用，点击停用' : '已停用，点击启用') + '" aria-label="启用或停用"></button>'
+      + '<span class="nm">' + esc(s.name) + '</span>';
+    const tail = '<span class="sp"></span>' + (IS_RULES ? '' : '<button data-run="' + esc(s.id) + '">立即运行</button>')
+      + '<button data-edit="' + esc(s.id) + '">修改</button><button class="danger" data-del="' + esc(s.id) + '" data-name="' + esc(s.name) + '">删除</button></div>';
+    const meta = IS_RULES
+      ? '<span>匹配：' + (s.keywords ? '告警里含有 ' + esc(s.keywords) : '任何告警') + (s.level === 'danger' ? '（只限严重告警）' : '') + '</span><span>同一告警 ' + s.cooldownMinutes + ' 分钟内不重复触发</span><span>已触发 ' + (s.fireCount || 0) + ' 次</span>' + lastTag(s.last)
+      : (s.enabled ? '<span>下次：' + clock(s.nextRunAt) + '</span>' : '<span>已停用</span>') + lastTag(s.last);
+    return '<div class="it' + (s.enabled ? ' on' : '') + '">' + head + (IS_RULES ? '' : '<span class="when">' + esc(whenText(s)) + '</span>') + tail
+      + '<div class="meta">' + meta + '</div><div class="pr">' + esc(s.prompt) + '</div></div>';
+  }).join('') : '<div class="empty">' + (IS_RULES ? '还没有规则。' : '还没有定时任务。') + '</div>';
+  const mine = data.log.filter((l) => l.kind === KIND);
+  $('log').innerHTML = mine.length ? mine.map((l) => '<div class="log"><time>' + clock(l.t) + '</time><span><b>' + esc(l.name) + '</b>　' + esc(l.text) + '</span></div>').join('') : '<div class="empty">还没有。</div>';
+}
+function showForm(item) {
+  editing = item ? item.id : '';
+  const s = item || (IS_RULES ? { name: '', keywords: '', level: 'any', cooldownMinutes: 60, enabled: true, prompt: '调度台刚出现一条新告警：{alert}\n\n请先用只读命令排查原因，告诉我发生了什么、可能的原因和建议的处理办法。不要自行修改或重启任何东西。' }
+    : { name: '', kind: 'daily', time: '09:00', weekdays: [1, 2, 3, 4, 5], everyMinutes: 60, enabled: true, prompt: '' });
+  const common = '<label>名字<input id="f_name" maxlength="60" value="' + esc(s.name) + '" placeholder="' + (IS_RULES ? '例如：网站打不开时自动排查' : '例如：每日巡检日报') + '"></label>';
+  const body = IS_RULES
+    ? '<div class="rowf"><label>告警里含有这些词才触发（留空 = 任何告警）<input id="f_keywords" maxlength="200" value="' + esc(s.keywords) + '" placeholder="例如：打不开 离线 磁盘（空格或逗号分隔，含任意一个即可）"></label>'
+      + '<label style="max-width:190px">告警级别<select id="f_level"><option value="any">所有告警</option><option value="danger"' + (s.level === 'danger' ? ' selected' : '') + '>只限严重告警</option></select></label>'
+      + '<label style="max-width:190px">同一告警多久内不重复触发（分钟）<input id="f_cool" type="number" min="5" max="10080" value="' + esc(s.cooldownMinutes) + '"></label></div>'
+      + '<label>触发时让 Agent 做什么<textarea id="f_prompt">' + esc(s.prompt) + '</textarea><span class="hint">写 {alert} 的地方会被替换成告警的原文。</span></label>'
+    : '<div class="rowf"><label style="max-width:180px">多久执行一次<select id="f_kind"><option value="daily">每天</option><option value="weekly">每周的某几天</option><option value="interval">每隔一段时间</option></select></label>'
+      + '<label id="w_time" style="max-width:150px">几点<input id="f_time" type="time" value="' + esc(s.time) + '"></label>'
+      + '<label id="w_every" style="max-width:260px">间隔<span style="display:flex;gap:6px"><input id="f_every" type="number" min="1" style="width:90px"><select id="f_unit"><option value="1">分钟</option><option value="60">小时</option><option value="1440">天</option></select></span></label></div>'
+      + '<div id="w_days"><div class="hint" style="margin-bottom:4px">哪几天</div><div class="days">' + DAYS.map((d, i) => '<label><input type="checkbox" class="f_day" value="' + i + '"' + (s.weekdays.includes(i) ? ' checked' : '') + '>' + d + '</label>').join('') + '</div></div>'
+      + '<label>到点时让 Agent 做什么<textarea id="f_prompt" placeholder="像平时发任务一样写清楚要做什么、结果放在哪里。">' + esc(s.prompt) + '</textarea></label>';
+  $('formBox').innerHTML = '<form id="form">' + common + body
+    + '<label style="display:flex;flex-direction:row;align-items:center;gap:8px;color:var(--text)"><input type="checkbox" id="f_enabled"' + (s.enabled ? ' checked' : '') + '>保存后立即启用</label>'
+    + '<div class="acts"><span id="err"></span><button type="button" id="cancel">取消</button><button type="submit" class="main">保存</button></div></form>';
+  if (!IS_RULES) {
+    $('f_kind').value = s.kind;
+    const unit = s.everyMinutes % 1440 === 0 ? 1440 : s.everyMinutes % 60 === 0 ? 60 : 1;
+    $('f_unit').value = String(unit); $('f_every').value = s.everyMinutes / unit;
+    const sync = () => { const k = $('f_kind').value; $('w_time').hidden = k === 'interval'; $('w_every').hidden = k !== 'interval'; $('w_days').hidden = k !== 'weekly'; };
+    $('f_kind').onchange = sync; sync();
+  }
+  $('cancel').onclick = hideForm;
+  $('form').onsubmit = save;
+  $('f_name').focus();
+}
+function hideForm() { editing = null; $('formBox').innerHTML = ''; }
+async function save(e) {
+  e.preventDefault();
+  const body = { name: $('f_name').value, prompt: $('f_prompt').value, enabled: $('f_enabled').checked };
+  if (editing) body.id = editing;
+  if (IS_RULES) Object.assign(body, { keywords: $('f_keywords').value, level: $('f_level').value, cooldownMinutes: Number($('f_cool').value) });
+  else Object.assign(body, { kind: $('f_kind').value, time: $('f_time').value, weekdays: [...document.querySelectorAll('.f_day:checked')].map((c) => Number(c.value)), everyMinutes: Number($('f_every').value) * Number($('f_unit').value) });
+  try { await post('/' + KIND, null, body); hideForm(); await refresh(); } catch (err) { $('err').textContent = err.message; }
+}
+async function refresh() {
+  try {
+    const res = await fetch(API + '/summary');
+    if (!res.ok) throw new Error('读取失败（' + res.status + '）');
+    data = await res.json();
+    renderList();
+    $('tip').textContent = '';
+  } catch (e) { $('tip').textContent = e.message; }
+}
+$('addBtn').onclick = () => showForm(null);
+document.addEventListener('click', async (e) => {
+  const t = e.target.closest('[data-toggle],[data-run],[data-edit],[data-del]');
+  if (!t) return;
+  const items = IS_RULES ? data.rules : data.schedules;
+  try {
+    if (t.dataset.toggle) await post('/' + KIND + '/toggle', { id: t.dataset.toggle });
+    if (t.dataset.run) { await post('/schedule/run', { id: t.dataset.run }); $('tip').style.color = 'var(--ok)'; $('tip').textContent = '已发出任务，到"任务"页可以看它的进展。'; setTimeout(() => { $('tip').style.color = ''; }, 4000); }
+    if (t.dataset.edit) return showForm(items.find((x) => x.id === t.dataset.edit));
+    if (t.dataset.del) { if (!confirm('删除"' + t.dataset.name + '"吗？')) return; await post('/' + KIND + '/delete', { id: t.dataset.del }); if (editing === t.dataset.del) hideForm(); }
+    await refresh();
+  } catch (err) { $('tip').textContent = err.message; }
+});
+(async function loop() { await refresh(); setTimeout(loop, 5000); })();
+</script>
+</body>
+</html>

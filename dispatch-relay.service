@@ -1,0 +1,11 @@
+[Unit]
+Description=Collect relay usage totals for the dispatch console
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/dispatch/relay-stats.sh
+# 结果文件放在 /run/dispatch-relay/，调度台进程只读它。
+RuntimeDirectory=dispatch-relay
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes

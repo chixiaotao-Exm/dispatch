@@ -1,0 +1,23 @@
+[Unit]
+Description=Approval broker for the dedicated agent's server commands
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+# 以无特权的专用账号运行。登录服务器的密钥在 /var/lib/agent-ops，只有这个账号能读，Agent 的容器里没有。
+User=agentops
+Group=agentops
+StateDirectory=agent-ops
+StateDirectoryMode=0700
+ExecStart=/usr/bin/python3 /opt/agent-ops/ops-broker.py
+Restart=always
+RestartSec=3
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+# 只允许写：自己的状态目录，以及给容器里的 Agent 用的那个套接字所在的目录。
+ReadWritePaths=/opt/agent/home/.ops
+
+[Install]
+WantedBy=multi-user.target

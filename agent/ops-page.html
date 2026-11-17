@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>专用 Agent · 服务器操作审批</title>
+<style>
+:root{--bg:#0d1017;--card:#151a24;--line:#263044;--text:#e8ecf3;--sub:#93a0b5;--mute:#5f6b80;--accent:#ff9a4d;--bad:#ef5b5b;--ok:#34c38f;--warn:#f0a53a;--run:#5b9dff}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 system-ui,"Microsoft YaHei",sans-serif;overflow:auto}
+.wrap{max-width:980px;margin:0 auto;padding:14px 18px 40px}
+h2{font-size:13px;font-weight:400;color:var(--mute);margin:18px 0 8px}
+.note{color:var(--sub);font-size:13px;margin:0 0 4px}
+.req{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px}
+.req.pending{border-color:var(--warn)}
+.top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;color:var(--sub)}
+.top b{color:var(--text);font-weight:600}
+.top .sp{flex:1}
+.cmd{font-family:ui-monospace,Consolas,monospace;font-size:13px;white-space:pre-wrap;word-break:break-all;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:8px 0}
+.why{font-size:13px;color:var(--sub)}
+.why i{font-style:normal;color:var(--mute)}
+.acts{display:flex;gap:8px;justify-content:flex-end;margin-top:10px;align-items:center}
+.acts .left{margin-right:auto;font-size:12px;color:var(--mute)}
+button{background:transparent;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 16px;font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}
+button:hover{border-color:var(--sub)}
+button.yes{background:var(--ok);border-color:var(--ok);color:#04130d;font-weight:600}
+button.no:hover{border-color:var(--bad);color:var(--bad)}
+button:disabled{opacity:.5;cursor:default}
+.tag{font-size:12px;border-radius:6px;padding:1px 8px;border:1px solid var(--line);color:var(--sub);white-space:nowrap}
+.tag.done{color:var(--ok);border-color:var(--ok)}.tag.fail{color:var(--bad);border-color:var(--bad)}
+.tag.denied,.tag.expired{color:var(--warn);border-color:var(--warn)}.tag.running{color:var(--run);border-color:var(--run)}
+details{margin-top:6px}
+summary{cursor:pointer;font-size:12px;color:var(--sub);user-select:none}
+pre{font-family:ui-monospace,Consolas,monospace;font-size:12px;white-space:pre-wrap;word-break:break-all;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:6px 0 0;max-height:260px;overflow:auto;color:var(--sub)}
+pre.err{color:var(--bad)}
+.mailsub{font-size:14px;margin:8px 0 0}.mailsub i{font-style:normal;color:var(--mute)}
+.cmd.mailbody{font-family:inherit;font-size:13px;max-height:260px;overflow:auto;line-height:1.6}
+.mailprev iframe{width:100%;height:560px;border:1px solid var(--line);border-radius:8px;background:#fff;margin-top:6px}
+.empty{color:var(--mute);padding:14px 0;font-size:13px}
+.warnline{color:var(--warn);font-size:12px;margin-top:4px}
+#tip{color:var(--bad);font-size:13px;min-height:20px}
+.mail{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:10px 0 4px}
+.mail .row1{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mail .row1 b{font-weight:600}
+.mail .state{font-size:13px;color:var(--sub)}
+.mail .state.on{color:var(--ok)}
+.mail form{display:grid;gap:10px;margin-top:12px;max-width:520px}
+.mail label{display:grid;gap:4px;font-size:13px;color:var(--sub)}
+.mail input{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font:inherit;outline:none}
+.mail input:focus{border-color:var(--ok)}
+.mail .how{font-size:13px;color:var(--sub);line-height:1.8;border-left:3px solid var(--line);padding-left:12px}
+.mail .how a{color:var(--run)}
+.mail .acts{justify-content:flex-start}
+.allowrow{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--line);font-size:13px}
+.allowrow:first-child{border-top:0}
+.allowrow .who{color:var(--sub);white-space:nowrap;padding-top:6px}
+.allowrow .cmd{flex:1;margin:0;min-width:0}
+button.always{border-color:var(--ok);color:var(--ok);background:transparent}
+#mailErr,#polErr{color:var(--bad);font-size:13px}
+.pol{margin-top:12px;border-top:1px solid var(--line);padding-top:12px;display:grid;gap:8px;max-width:620px;font-size:13px}
+.pol .opt{display:flex;gap:8px;align-items:flex-start;cursor:pointer;line-height:1.6}
+.pol .opt input{margin-top:4px}
+.pol .opt small{display:block;color:var(--sub)}
+.pol textarea{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font:inherit;min-height:64px;resize:vertical;outline:none}
+.pol .lim{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--sub)}
+.pol .lim input{width:70px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:5px 8px;font:inherit}
+.pol .acts{justify-content:flex-start;display:flex;gap:10px;align-items:center}
+#polOk{color:var(--ok);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="note">专用 Agent 想在你的服务器上执行命令、或者想用你的 Gmail 给别人发邮件时，会先出现在这里。服务器命令先由 CEO Agent 审核：它同意的直接执行，它拒绝的不执行，它拿不准或有风险的转给你决定。规则库里禁止的命令谁也批准不了。不处理的话 15 分钟后自动作废。</p>
+  <div class="mail" id="mail"></div>
+  <div id="tip"></div>
+  <h2>等你批准</h2>
+  <div id="pending"></div>
+  <h2>免审批的命令</h2>
+  <p class="note">每台服务器的例行巡检（负载、内存、磁盘、失败的服务、占用最高的进程、容器状态）是内置的只读命令，一直不需要审批。另外，你点过"以后这条不再问"的命令列在下面：Agent 再提交一字不差的同一条时会直接执行。</p>
+  <div id="allow"></div>
+  <h2 id="extHead" hidden>扩展申请（Agent 申请工具 / 技能 / MCP，由 CEO Agent 审批、开发者安装）</h2>
+  <div id="extList"></div>
+  <h2>最近的记录</h2>
+  <div id="recent"></div>
+</div>
+<script>
+const API = '/ops/api';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s === null || s === undefined ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const clock = (t) => t ? new Date(t).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+// ---- 发邮件设置：在这里填 Gmail 地址和应用专用密码 ----
+let mailState = null, mailEditing = false;
+function renderMail() {
+  const m = mailState, box = $('mail');
+  if (!m) { box.innerHTML = '<div class="row1"><b>发邮件（Gmail）</b><span class="state">读取中…</span></div>'; return; }
+  const head = '<div class="row1"><b>发邮件（Gmail）</b>'
+    + (m.configured ? '<span class="state on">已配置：' + esc(m.address) + '</span>' : '<span class="state">还没有配置，Agent 现在发不了邮件</span>')
+    + '<span class="sp"></span>'
+    + (mailEditing ? '' : '<button id="mailEdit">' + (m.configured ? '修改' : '去配置') + '</button>' + (m.configured ? '<button class="no" id="mailClear">停用</button>' : ''))
+    + '</div>';
+  if (!mailEditing) {
+    box.innerHTML = head + (m.configured ? policyHtml(m) : '');
+    if (m.configured) bindPolicy(m);
+    return;
+  }
+  box.innerHTML = head + '<form id="mailForm">'
+    + '<div class="how">这里要填的<b>不是</b> Gmail 登录密码，而是一个 16 位的"应用专用密码"：<br>'
+    + '1. 你的 Google 账号要先开启两步验证；<br>'
+    + '2. 打开 <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer">myaccount.google.com/apppasswords</a>，起个名字（比如 dispatch），点生成；<br>'
+    + '3. 把生成的 16 位密码填到下面。以后不想用了，在同一个页面把它删掉即可。</div>'
+    + '<label>Gmail 地址<input id="mAddr" type="email" autocomplete="off" placeholder="name@gmail.com" value="' + esc(m.address || '') + '"></label>'
+    + '<label>发件人显示的名字（可以留空）<input id="mName" maxlength="60" autocomplete="off" value="' + esc(m.name || '') + '"></label>'
+    + '<label>应用专用密码<input id="mPass" type="password" autocomplete="new-password" placeholder="16 位，带不带空格都行"></label>'
+    + '<div class="acts"><button type="submit" class="yes" id="mailSave">验证并保存</button><button type="button" id="mailCancel">取消</button><span id="mailErr"></span></div>'
+    + '</form>';
+  $('mailCancel').onclick = () => { mailEditing = false; renderMail(); };
+  $('mailForm').onsubmit = async (e) => {
+    e.preventDefault();
+    $('mailSave').disabled = true; $('mailSave').textContent = '正在登录 Gmail 验证…'; $('mailErr').textContent = '';
+    try {
+      const res = await fetch(API + '/mail/save', { method: 'POST', headers: { 'X-Ops-Action': '1', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: $('mAddr').value, name: $('mName').value, app_password: $('mPass').value }) });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || '保存失败（' + res.status + '）');
+      mailEditing = false;
+      await loadMail();
+    } catch (err) {
+      $('mailErr').textContent = err.message;
+      $('mailSave').disabled = false; $('mailSave').textContent = '验证并保存';
+    }
+  };
+}
+// ---- 发给别人的邮件要不要审批 ----
+let polDirty = false;
+function policyHtml(m) {
+  const p = m.policy || { mode: 'ask', allow: [], dailyLimit: 50 };
+  const opt = (v, title, sub) => '<label class="opt"><input type="radio" name="polMode" value="' + v + '"' + (p.mode === v ? ' checked' : '') + '><span>' + title + '<small>' + sub + '</small></span></label>';
+  return '<div class="pol"><div class="state">发给 ' + esc(m.address) + '（你自己）的邮件一直是直接发。发给其他人的：</div>'
+    + opt('ask', '每一封都要我批准', '最稳妥。定时任务、自动化任务发的邮件会停下来等你点"允许发送"。')
+    + opt('list', '名单里的地址免审批，其他人仍要批准', '适合固定发给几个人的日报、提醒。')
+    + opt('all', '全部免审批', 'Agent（包括自动化任务）可以不经你确认，用你的 Gmail 发给任何人。')
+    + '<textarea id="polAllow" placeholder="免审批的邮箱地址，每行一个"' + (p.mode === 'list' ? '' : ' hidden') + '>' + esc((p.allow || []).join('\n')) + '</textarea>'
+    + '<div class="lim" id="polLimRow"' + (p.mode === 'ask' ? ' hidden' : '') + '>免审批每 24 小时最多发 <input id="polLimit" type="number" min="1" max="200" value="' + p.dailyLimit + '"> 封，超出的改为等你批准（已发 ' + (m.sentToday || 0) + ' 封）</div>'
+    + '<div class="acts"><button class="yes" id="polSave">保存审批方式</button><span id="polOk"></span><span id="polErr"></span></div></div>';
+}
+function bindPolicy(m) {
+  const mode = () => (document.querySelector('input[name=polMode]:checked') || {}).value || 'ask';
+  const sync = () => { $('polAllow').hidden = mode() !== 'list'; $('polLimRow').hidden = mode() === 'ask'; };
+  document.querySelectorAll('input[name=polMode]').forEach((r) => r.onchange = () => { polDirty = true; sync(); });
+  $('polAllow').oninput = $('polLimit').oninput = () => { polDirty = true; };
+  $('polSave').onclick = async () => {
+    $('polErr').textContent = ''; $('polOk').textContent = '';
+    const was = (m.policy || {}).mode;
+    if (mode() === 'all' && was !== 'all' && !confirm('选了"全部免审批"之后，Agent 可以不经你确认、用你的 Gmail 给任何人发邮件，发出后无法撤回。\n\n如果它读到的网页或文件里藏着诱导它发邮件的内容，也不会再有人拦一下。\n\n确定要这样设置吗？')) return;
+    try {
+      const res = await fetch(API + '/mail/policy', { method: 'POST', headers: { 'X-Ops-Action': '1', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: mode(), allow: $('polAllow').value, dailyLimit: parseInt($('polLimit').value, 10) }) });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || '保存失败（' + res.status + '）');
+      polDirty = false;
+      await loadMail();
+      $('polOk').textContent = '已保存';
+    } catch (err) { $('polErr').textContent = err.message; }
+  };
+}
+async function loadMail() {
+  try {
+    const res = await fetch(API + '/mail');
+    if (!res.ok) return;
+    mailState = await res.json();
+    if (!mailEditing && !polDirty) renderMail(); // 正在填表、或审批方式改了还没保存时不重画，免得把填了一半的内容冲掉
+  } catch (e) { /* 读不到就保持原样 */ }
+}
+document.addEventListener('click', async (e) => {
+  if (e.target.id === 'mailEdit') { mailEditing = true; renderMail(); $('mAddr').focus(); }
+  if (e.target.id === 'mailClear') {
+    if (!confirm('停用后 Agent 就不能发邮件了，保存在服务器上的应用专用密码也会删除。确定吗？')) return;
+    await fetch(API + '/mail/clear', { method: 'POST', headers: { 'X-Ops-Action': '1', 'Content-Type': 'application/json' }, body: '{}' });
+    await loadMail();
+  }
+});
+// 网址带 #mail 时（从调度台卡片上的"设置"点进来），直接展开表单。
+if (location.hash === '#mail') mailEditing = true;
+loadMail().then(renderMail);
+setInterval(loadMail, 10000);
+
+let ttl = 900;
+let lastKey = '';
+const openOut = new Set();
+// 提醒主人留意的写法：不代表一定危险，只是这些命令值得多看一眼。
+const RISKY = [/\brm\s+-[a-z]*r/i, /\bmkfs|\bdd\s+if=|\bshred\b/i, /\b(reboot|shutdown|poweroff|halt)\b/i, /\bsystemctl\s+(stop|restart|disable|mask)\b/i,
+  /\bdocker\s+(rm|stop|kill|restart|system\s+prune|volume\s+rm)\b/i, /\b(ufw|iptables|nft)\b/i, /authorized_keys|sshd_config|\bpasswd\b|\buseradd\b|\bchmod\s+-R|\bchown\s+-R/i,
+  /\bdrop\s+(table|database)\b|\btruncate\b|\bdelete\s+from\b/i, /curl[^|]*\|\s*(ba)?sh|wget[^|]*\|\s*(ba)?sh/i, />\s*\/(etc|usr|boot|var\/lib)\b/i, /\bkill(all)?\b|\bpkill\b/i];
+function risk(cmd) {
+  const notes = [];
+  if (RISKY.some((r) => r.test(cmd))) notes.push('这条命令会修改、停止或删除东西，请确认它正是你想要的。');
+  if (/[;&|]{1,2}|\n|\$\(|`/.test(cmd)) notes.push('这是多条命令组合在一起，请把每一段都看一遍。');
+  if (cmd.length > 300) notes.push('命令比较长，请完整读完再决定。');
+  return notes.map((n) => '<div class="warnline">' + n + '</div>').join('');
+}
+function left(t) { const s = Math.max(0, Math.round(ttl - (Date.now() - t) / 1000)); return Math.floor(s / 60) + ' 分 ' + (s % 60) + ' 秒后作废'; }
+// 一条请求要显示成什么样：服务器命令显示"在哪台上执行什么"，邮件显示收件人、标题、正文和附件。
+function headline(r) {
+  if (r.kind === 'secret') return '申请使用密码 <b>' + esc(r.secret) + '</b>';
+  return r.kind === 'mail' ? '发邮件给 <b>' + esc((r.to || []).join('、')) + '</b>' : '在 <b>' + esc(r.label) + '</b> 上执行';
+}
+function detail(r) {
+  if (r.kind !== 'mail') return '<div class="cmd">' + esc(r.command) + '</div>';
+  return '<div class="mailsub"><i>标题：</i>' + esc(r.subject) + '</div><div class="cmd mailbody">' + esc(r.body) + '</div>'
+    + ((r.attachments || []).length ? '<div class="why"><i>附件：</i>' + r.attachments.map(esc).join('、') + '</div>' : '')
+    + (r.status === 'pending' ? '<details class="mailprev"><summary>' + (r.rich ? '这封邮件带有 Agent 自己排的版式——点开看它发出去的实际样子（上面是纯文字版）' : '点开看它发出去的实际样子') + '</summary>'
+      + '<iframe sandbox="" loading="lazy" src="' + API + '/mail/preview?id=' + encodeURIComponent(r.id) + '"></iframe></details>' : '');
+}
+const MAIL_NOTE = '<div class="warnline">这封邮件会以你的 Gmail 名义发出，发出后无法撤回。请确认收件人和内容。</div>';
+// CEO Agent 的审核情况：这条请求是哪个 Agent 提的、CEO 怎么说。
+function reviewLine(r) {
+  if (r.kind === 'mail') return '';
+  const who = r.agent === 'auto' ? '自动化 Agent' : '专用 Agent';
+  const rv = r.review || {}, why = rv.reason ? '：' + esc(rv.reason) : '';
+  const t = { waiting: 'CEO Agent 正在审核…（你也可以现在直接决定）', ask: 'CEO Agent 转给你决定' + why, timeout: esc(rv.reason || 'CEO Agent 没有回应，等你决定'),
+    allow: 'CEO Agent 批准' + why, deny: 'CEO Agent 拒绝' + why, rule: '规则库禁止' + why }[rv.state] || '';
+  return '<div class="why"><i>提交者：</i>' + who + (t ? '　<i>审核：</i>' + t : '') + '</div>';
+}
+function tag(r) {
+  if (r.status === 'blocked') return '<span class="tag fail">规则库禁止</span>';
+  if (r.status === 'denied' && (r.review || {}).state === 'deny') return '<span class="tag denied">CEO Agent 拒绝</span>';
+  if (r.kind === 'secret' && r.status === 'done') return r.taken ? '<span class="tag done">CEO Agent 批准 · 已取用</span>' : '<span class="tag done">CEO Agent 批准 · 没有取用</span>';
+  if (r.kind === 'mail' && r.status === 'done') return r.exitCode === 0 ? '<span class="tag done">' + (r.auto ? '已发出 · 免审批' : '已发出') + '</span>' : '<span class="tag fail">没发出去</span>';
+  if (r.status === 'done') return r.exitCode === 0 ? '<span class="tag done">已执行 · 成功' + (r.auto ? ' · 免审批' : '') + '</span>' : '<span class="tag fail">已执行 · 退出码 ' + esc(r.exitCode === null ? '未知' : r.exitCode) + '</span>';
+  return { denied: '<span class="tag denied">已拒绝</span>', expired: '<span class="tag expired">过期作废</span>', running: '<span class="tag running">执行中…</span>' }[r.status] || '';
+}
+let allowList = [], lastAllowKey = null, lastPendKey = null, lastExtKey = null;
+// Agent 的扩展申请：只读的记录，批不批由 CEO Agent 决定。
+function renderExt(list) {
+  const key = JSON.stringify(list.map((r) => [r.id, r.state]));
+  if (key === lastExtKey) return;
+  lastExtKey = key;
+  $('extHead').hidden = !list.length;
+  const KIND = { tool: '工具', skill: '技能', mcp: 'MCP 服务' };
+  const TAG = { waiting: ['running', 'CEO Agent 审批中'], approved: ['running', '已批准 · 等开发者安装'], installing: ['running', '开发者正在安装'], installed: ['done', '已安装'], denied: ['denied', 'CEO Agent 没有批准'], failed: ['fail', '没有装上'] };
+  $('extList').innerHTML = list.map((r) => { const t = TAG[r.state] || ['', r.state]; return '<div class="req"><div class="top">' + esc(r.who || '专用 Agent') + ' 申请' + (KIND[r.kind] || '') + ' <b>' + esc(r.name) + '</b><span class="sp"></span><span>' + clock(r.createdAt) + '</span><span class="tag ' + t[0] + '">' + t[1] + '</span></div>'
+    + (r.review ? '<div class="why"><i>CEO Agent：</i>' + esc(r.review.reason) + '</div>' : '') + (r.result ? '<div class="why"><i>开发者：</i>' + esc(r.result) + '</div>' : '') + '</div>'; }).join('');
+}
+function render(d) {
+  ttl = d.ttlSeconds || ttl;
+  renderExt(d.ext || []);
+  const pkey = JSON.stringify(d.pending.map((r) => [r.id, (r.review || {}).state, r.note]));
+  if (pkey !== lastPendKey) { lastPendKey = pkey; $('pending').innerHTML = d.pending.length ? d.pending.map((r) =>
+    '<div class="req pending"><div class="top">' + headline(r) + '<span class="sp"></span><span>' + clock(r.createdAt) + '</span></div>'
+    + detail(r)
+    + '<div class="why"><i>Agent 给出的理由：</i>' + (r.why ? esc(r.why) : '（没有说明）') + '</div>' + (r.kind === 'mail' ? MAIL_NOTE + (r.note ? '<div class="warnline">' + esc(r.note) + '</div>' : '') : risk(r.command)) + reviewLine(r)
+    + '<div class="acts"><span class="left" data-left="' + r.createdAt + '">' + left(r.createdAt) + '</span>'
+    + '<button class="no" data-id="' + esc(r.id) + '" data-ok="0">拒绝</button>' + (r.kind === 'mail' ? '' : '<button class="always" data-id="' + esc(r.id) + '" data-ok="1" data-always="1">允许，以后这条不再问</button>')
+    + '<button class="yes" data-id="' + esc(r.id) + '" data-ok="1">' + (r.kind === 'mail' ? '允许发送' : '允许执行') + '</button></div></div>').join('')
+    : '<div class="empty">现在没有等你批准的命令。</div>'; }
+  allowList = d.allow || [];
+  const akey = JSON.stringify(allowList);
+  if (akey !== lastAllowKey) {
+    lastAllowKey = akey;
+    $('allow').innerHTML = allowList.length ? allowList.map((a, i) =>
+      '<div class="allowrow"><span class="who">' + esc(a.label) + '</span><div class="cmd">' + esc(a.command) + '</div><button class="no" data-rm="' + i + '">取消免审批</button></div>').join('')
+      : '<div class="empty">还没有。在上面"等你批准"里点"允许，以后这条不再问"就会加到这里。</div>';
+  }
+  const key = JSON.stringify(d.recent.map((r) => [r.id, r.status, r.exitCode, (r.stdout || '').length, (r.review || {}).state]));
+  if (key === lastKey) return; // 历史没变就不重画，免得打断正在看的输出
+  lastKey = key;
+  $('recent').innerHTML = d.recent.length ? d.recent.map((r) => {
+    const out = (r.stdout || r.stderr) ? '<details data-out="' + esc(r.id) + '"' + (openOut.has(r.id) ? ' open' : '') + '><summary>查看输出</summary>'
+      + (r.stdout ? '<pre>' + esc(r.stdout) + '</pre>' : '') + (r.stderr ? '<pre class="err">' + esc(r.stderr) + '</pre>' : '') + '</details>' : '';
+    return '<div class="req"><div class="top">' + tag(r) + '<span>' + headline(r) + '</span><span class="sp"></span><span>' + clock(r.createdAt) + '</span></div>'
+      + detail(r) + (r.why ? '<div class="why"><i>理由：</i>' + esc(r.why) + '</div>' : '') + reviewLine(r) + out + '</div>';
+  }).join('') : '<div class="empty">还没有记录。</div>';
+}
+async function refresh() {
+  try {
+    const res = await fetch(API + '/list');
+    if (!res.ok) throw new Error('读取失败（' + res.status + '）');
+    render(await res.json());
+    $('tip').textContent = '';
+  } catch (e) { $('tip').textContent = e.message; }
+}
+document.addEventListener('toggle', (e) => {
+  const d = e.target;
+  if (d.dataset && d.dataset.out) { if (d.open) openOut.add(d.dataset.out); else openOut.delete(d.dataset.out); }
+}, true);
+document.addEventListener('click', async (e) => {
+  const rm = e.target.closest('button[data-rm]');
+  if (rm) {
+    const a = allowList[Number(rm.dataset.rm)];
+    if (!a) return;
+    rm.disabled = true;
+    await fetch(API + '/allow/remove', { method: 'POST', headers: { 'X-Ops-Action': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ server: a.server, command: a.command }) });
+    return refresh();
+  }
+  const b = e.target.closest('button[data-id]');
+  if (!b) return;
+  const approve = b.dataset.ok === '1';
+  const always = b.dataset.always === '1';
+  if (always && !confirm('以后 Agent 在这台服务器上提交一字不差的这条命令时，会直接执行，不再问你。\n\n只建议对"只查看、不改动"的命令这样做。确定吗？')) return;
+  for (const x of document.querySelectorAll('button[data-id="' + b.dataset.id + '"]')) x.disabled = true;
+  try {
+    const res = await fetch(API + '/decide', { method: 'POST', headers: { 'X-Ops-Action': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ id: b.dataset.id, approve, always }) });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(j.error || '操作失败（' + res.status + '）');
+  } catch (err) { $('tip').textContent = err.message; }
+  refresh();
+});
+setInterval(() => { for (const el of document.querySelectorAll('[data-left]')) el.textContent = left(Number(el.dataset.left)); }, 1000);
+(async function loop() { await refresh(); setTimeout(loop, 2000); })();
+</script>
+</body>
+</html>

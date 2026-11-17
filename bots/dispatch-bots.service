@@ -1,0 +1,27 @@
+[Unit]
+Description=Bots brain (multi-bot agent loop for the dispatch console)
+After=network-online.target dispatch-agent-tunnel.service
+Wants=network-online.target
+
+[Service]
+# Bot 的大脑：模型密钥只在这台机器上（来自 /etc/dispatch/env）；Bot 的电脑在另一台服务器的隔离容器里，经加密隧道 7696 调用。
+DynamicUser=yes
+WorkingDirectory=/opt/dispatch-bots
+ExecStart=/usr/bin/node /opt/dispatch-bots/bots.js
+Restart=always
+RestartSec=5
+Environment=BOTS_HOST=127.0.0.1
+Environment=BOTS_PORT=4790
+Environment=BOT_TOOLS_URL=http://127.0.0.1:7696
+Environment=BOT_CLAUDE_URL=http://127.0.0.1:7684/tasks/api/llm
+EnvironmentFile=/etc/dispatch/env
+# 安装口令：只有带着它，Bot 电脑里的安装器才肯装东西。
+LoadCredential=install-token:/etc/dispatch/bot-install-token
+StateDirectory=dispatch-bots
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

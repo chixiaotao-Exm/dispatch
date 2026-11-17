@@ -1,0 +1,23 @@
+[Unit]
+Description=调度台的语音转文字（本地 SenseVoice 模型）
+After=network.target
+
+[Service]
+ExecStart=/opt/dispatch-stt/venv/bin/python /opt/dispatch-stt/stt.py
+Environment=STT_PORT=4795
+Restart=always
+RestartSec=5
+DynamicUser=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_INET AF_UNIX
+IPAddressDeny=any
+IPAddressAllow=localhost
+MemoryMax=3G
+CPUQuota=400%
+
+[Install]
+WantedBy=multi-user.target

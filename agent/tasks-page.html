@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>专用 Agent · 任务</title>
+<style>
+:root{--bg:#0d1017;--card:#151a24;--line:#263044;--text:#e8ecf3;--sub:#93a0b5;--mute:#5f6b80;--accent:#ff9a4d;--bad:#ef5b5b;--ok:#34c38f;--warn:#f0a53a;--run:#5b9dff}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 system-ui,"Microsoft YaHei",sans-serif;display:flex}
+aside{width:270px;flex:none;border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+aside h2{margin:0;padding:10px 14px;font-size:13px;font-weight:400;color:var(--mute);border-bottom:1px solid var(--line);display:flex;align-items:center}
+aside h2 button{margin-left:auto}
+#list{flex:1;overflow:auto}
+.item{padding:9px 14px;border-bottom:1px solid color-mix(in srgb,var(--line) 55%,transparent);cursor:pointer}
+.item:hover{background:var(--card)}
+.item.on{background:var(--card);box-shadow:inset 3px 0 0 var(--accent)}
+.item .p{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all}
+.item .m{font-size:12px;color:var(--mute);margin-top:2px;display:flex;gap:8px;align-items:center}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--mute);flex:none}
+.dot.done{background:var(--ok)}.dot.failed{background:var(--bad)}.dot.stopped{background:var(--warn)}.dot.queued{background:var(--mute)}
+.dot.running{background:var(--run);animation:pulse 1.1s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.35;transform:scale(.8)}}
+main{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
+#detail{flex:1;overflow:auto;padding:14px 18px}
+.empty{color:var(--mute);padding:40px 0;text-align:center}
+.head{display:flex;gap:10px;align-items:flex-start;margin-bottom:6px}
+.head .q{flex:1;white-space:pre-wrap;word-break:break-word;font-size:15px;font-weight:600}
+.meta{font-size:12px;color:var(--mute);display:flex;gap:12px;flex-wrap:wrap;align-items:center;padding-bottom:10px;border-bottom:1px solid var(--line);margin-bottom:10px}
+.step{margin:8px 0}
+.step.say{word-break:break-word}
+/* Agent 的回答按 Markdown 排版：加粗、列表、代码、表格；链接只显示标题，鼠标停上去看网址，点击在新标签页打开。 */
+.md>:first-child{margin-top:0}.md>:last-child{margin-bottom:0}
+.md p{margin:8px 0}
+.md ul,.md ol{margin:8px 0;padding-left:22px}
+.md li{margin:3px 0}
+.md h4{margin:14px 0 6px;font-size:15px;font-weight:600}
+.md h4.h1{font-size:18px}.md h4.h2{font-size:16px}
+.md a{color:var(--run);text-decoration:none;border-bottom:1px solid color-mix(in srgb,var(--run) 40%,transparent)}
+.md a:hover{border-bottom-color:var(--run)}
+.md code{font-family:ui-monospace,Consolas,monospace;font-size:13px;background:var(--card);border:1px solid var(--line);border-radius:5px;padding:0 5px}
+.md pre.code{font-family:ui-monospace,Consolas,monospace;font-size:13px;white-space:pre;overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:8px 0;color:var(--text)}
+.md blockquote{margin:8px 0;padding:2px 12px;border-left:3px solid var(--line);color:var(--sub)}
+.md hr{border:0;border-top:1px solid var(--line);margin:12px 0}
+.md .tbl{overflow:auto;margin:8px 0}
+.md table{border-collapse:collapse;font-size:13px}
+.md th,.md td{border:1px solid var(--line);padding:5px 10px;text-align:left;vertical-align:top}
+.md th{background:var(--card);font-weight:600}
+/* 任务记录里每条右上角的删除按钮，鼠标移上去才显示。 */
+.item{position:relative}
+.item .x{position:absolute;top:6px;right:8px;border:0;background:var(--bg);color:var(--mute);border-radius:6px;padding:0 7px;font-size:16px;line-height:22px;opacity:0}
+.item:hover .x,.item .x:focus-visible{opacity:1}
+.item .x:hover{color:var(--bad);background:var(--line)}
+.item .p{padding-right:18px}
+.step.tool{font-family:ui-monospace,Consolas,monospace;font-size:13px;color:var(--accent);white-space:pre-wrap;word-break:break-all}
+.step.tool::before{content:"▸ ";color:var(--mute)}
+.step.out,.step.err,.step.log{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--sub);white-space:pre-wrap;word-break:break-all;
+  background:var(--card);border-left:2px solid var(--line);padding:6px 10px;max-height:150px;overflow:auto;border-radius:0 6px 6px 0}
+.step.err{color:var(--bad);border-left-color:var(--bad)}
+.result{margin-top:14px;border:1px solid var(--ok);border-radius:10px;padding:12px 14px;word-break:break-word}
+.result h3,.problem h3{margin:0 0 6px;font-size:12px;font-weight:400;color:var(--ok)}
+.problem{margin-top:14px;border:1px solid var(--bad);border-radius:10px;padding:12px 14px;white-space:pre-wrap;word-break:break-word}
+.problem h3{color:var(--bad)}.problem.stopped{border-color:var(--warn)}.problem.stopped h3{color:var(--warn)}
+.working{color:var(--run);font-size:13px;margin:10px 0}
+form{border-top:1px solid var(--line);padding:10px 14px;display:flex;flex-direction:column;gap:8px;flex:none}
+textarea{width:100%;height:68px;resize:vertical;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--text);padding:8px 12px;font:inherit;outline:none}
+textarea:focus{border-color:var(--accent)}
+.bar{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--sub)}
+.bar .sp{flex:1}
+.bar label{display:flex;align-items:center;gap:6px;cursor:pointer}
+button{background:transparent;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:5px 12px;font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}
+button:hover{border-color:var(--accent)}
+button.main{background:var(--accent);border-color:var(--accent);color:#1a0f04;font-weight:600}
+button.main:disabled{opacity:.5;cursor:default}
+button.danger:hover{border-color:var(--bad);color:var(--bad)}
+#tip{font-size:12px}#tip.err{color:var(--bad)}
+/* 快捷审批：Agent 想在服务器上执行命令时，直接在任务页里批准或拒绝。 */
+#approvals{flex:none;max-height:45%;overflow:auto;border-top:2px solid var(--warn);padding:10px 14px 4px;background:color-mix(in srgb,var(--warn) 6%,var(--bg))}
+#approvals h3{margin:0 0 8px;font-size:13px;font-weight:600;color:var(--warn)}
+.ap{background:var(--card);border:1px solid var(--warn);border-radius:10px;padding:10px 12px;margin-bottom:8px}
+.ap .where{font-size:13px;color:var(--sub)}.ap .where b{color:var(--text)}
+.ap .cmd{font-family:ui-monospace,Consolas,monospace;font-size:13px;white-space:pre-wrap;word-break:break-all;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 10px;margin:6px 0}
+.ap .why{font-size:13px;color:var(--sub)}.ap .why i{font-style:normal;color:var(--mute)}
+.ap .warnline{color:var(--warn);font-size:12px;margin-top:3px}
+.ap .acts{display:flex;gap:8px;align-items:center;margin-top:8px}
+.ap .acts .left{margin-right:auto;font-size:12px;color:var(--mute)}
+.ap .mailsub{font-size:14px;margin:8px 0 0}.ap .mailsub i{font-style:normal;color:var(--mute)}
+.ap .cmd.mailbody{font-family:inherit;font-size:13px;max-height:260px;overflow:auto;line-height:1.6}
+button.yes{background:var(--ok);border-color:var(--ok);color:#04130d;font-weight:600}
+button.no:hover{border-color:var(--bad);color:var(--bad)}
+.item.draft{border-style:dashed}
+.newhead{display:block;font-size:17px;color:var(--text);margin-bottom:8px}
+@keyframes flash{0%{box-shadow:0 0 0 2px var(--run)}100%{box-shadow:0 0 0 2px transparent}}
+#form.flash{animation:flash 1.2s ease-out}
+.pic{display:block;max-width:min(640px,100%);max-height:520px;border:1px solid var(--line);border-radius:8px;margin:8px 0;background:#fff;cursor:zoom-in}
+.pics{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start}
+.pics .pic{max-width:min(420px,100%);margin:0}
+.piclabel{font-size:12px;color:var(--mute);margin:12px 0 6px}
+@media (max-width:640px){aside{width:120px}}
+</style>
+</head>
+<body>
+<aside>
+  <h2>任务记录<button id="newBtn" title="开始一个和之前无关的新任务">新任务</button></h2>
+  <div id="list"></div>
+</aside>
+<main>
+  <div id="detail"><div class="empty">在下面写一句话，告诉 Agent 要做什么。<br>它会在自己的隔离环境里动手，做完把结果放在这里；产出的文件在"文件"页。</div></div>
+  <div id="approvals" hidden></div>
+  <form id="form">
+    <textarea id="prompt" placeholder="例如：写一个 Python 脚本，统计 data.csv 里每个城市的销售额，并把结果存成 result.md　（回车发送，Shift+回车换行）"></textarea>
+    <div class="bar">
+      <label id="contWrap" hidden><input type="checkbox" id="cont" checked> 接着上面这个任务继续（它记得之前做过什么）</label>
+      <span id="tip"></span><span class="sp"></span>
+      <button type="submit" class="main" id="send">发送任务</button>
+    </div>
+  </form>
+</main>
+<script>
+const API = '/tasks/api';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s === null || s === undefined ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// ---- 把 Agent 的回答（Markdown）排版成网页 ----
+// 先把所有文字转义，再只生成我们自己认识的那几种标签，所以回答里就算夹带 HTML 或脚本也不会被执行。
+// 链接只接受 http/https，一律在新标签页打开。
+// 工作目录里的图片：通过"文件"页的预览接口显示。路径可以写成 /workspace/xxx.png 或相对工作目录的 xxx.png。
+const IMG_EXT = /\.(png|jpe?g|gif|webp)$/i;
+const unesc = (s) => s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
+const wsRel = (p) => '/' + unesc(p).replace(/^(sandbox:|file:\/\/)/, '').replace(/^\/workspace\/?/, '').replace(/^\.?\//, '');
+const picTag = (p, alt) => { const u = '/files/api/raw?path=' + encodeURIComponent(wsRel(p)); return '<a href="' + u + '" target="_blank" rel="noopener"><img class="pic" loading="lazy" alt="' + (alt || '') + '" title="' + esc(wsRel(p)) + '" src="' + u + '" onerror="this.parentNode.remove()"></a>'; };
+// 回答里提到、但没有用图片写法贴出来的图片文件，也在结果下面直接显示出来。
+function picsIn(text) {
+  const src = String(text || '');
+  const shownAlready = new Set([...src.matchAll(/!\[[^\]]*\]\(([^)\s]+)\)/g)].map((m) => wsRel(m[1])));
+  const found = new Set();
+  for (const m of src.matchAll(/\/workspace\/[^\s`"'<>()（），。；：]+\.(?:png|jpe?g|gif|webp)/gi)) found.add(wsRel(m[0]));
+  for (const m of src.matchAll(/`([^`\n]+\.(?:png|jpe?g|gif|webp))`/gi)) if (!/^https?:/.test(m[1]) && !/\s/.test(m[1])) found.add(wsRel(m[1]));
+  const list = [...found].filter((p) => !shownAlready.has(p)).slice(0, 8);
+  return list.length ? '<div class="piclabel">提到的图片</div><div class="pics">' + list.map((p) => picTag(p, '')).join('') + '</div>' : '';
+}
+function inline(s) {
+  const keep = [];
+  const stash = (h) => { keep.push(h); return '\u0000' + (keep.length - 1) + '\u0000'; };
+  const link = (url, text) => stash('<a href="' + url + '" title="' + url + '" target="_blank" rel="noopener noreferrer">' + text + '</a>');
+  s = esc(s);
+  s = s.replace(/!\[([^\]\n]*)\]\(([^)\s]+)\)/g, (m, alt, u) => stash(/^https?:\/\//.test(u) ? '<img class="pic" loading="lazy" referrerpolicy="no-referrer" alt="' + alt + '" src="' + u + '">' : IMG_EXT.test(u) ? picTag(u, alt) : m));
+  s = s.replace(/`([^`\n]+)`/g, (m, c) => stash('<code>' + c + '</code>'));
+  s = s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (m, t, u) => link(u, t));
+  s = s.replace(/https?:\/\/[^\s<>"'）】，。；、]+[^\s<>"'）】，。；、.,;:!?)\]]/g, (u) => link(u, u));
+  s = s.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replace(/(^|[^*\w])\*([^*\s][^*\n]*)\*(?![*\w])/g, '$1<i>$2</i>');
+  return s.replace(/\u0000(\d+)\u0000/g, (m, i) => keep[i]);
+}
+function md(src) {
+  const lines = String(src === null || src === undefined ? '' : src).replace(/\r/g, '').split('\n');
+  const out = [];
+  let para = [], i = 0;
+  const flush = () => { if (para.length) { out.push('<p>' + para.map(inline).join('<br>') + '</p>'); para = []; } };
+  const cells = (row) => row.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+  const take = (re) => { const items = []; while (i < lines.length && re.test(lines[i])) items.push(lines[i++].replace(re, '')); return items; };
+  while (i < lines.length) {
+    const line = lines[i];
+    let m;
+    if (/^\s*```/.test(line)) {
+      flush();
+      const buf = [];
+      i++;
+      while (i < lines.length && !/^\s*```/.test(lines[i])) buf.push(lines[i++]);
+      i++;
+      out.push('<pre class="code">' + esc(buf.join('\n')) + '</pre>');
+    } else if (!line.trim()) { flush(); i++; }
+    else if ((m = line.match(/^\s*(#{1,6})\s+(.*)$/))) { flush(); out.push('<h4 class="h' + m[1].length + '">' + inline(m[2]) + '</h4>'); i++; }
+    else if (/^\s*([-*_])\s*\1\s*\1[-*_\s]*$/.test(line)) { flush(); out.push('<hr>'); i++; }
+    else if (/^\s*[-*+]\s+/.test(line)) { flush(); out.push('<ul>' + take(/^\s*[-*+]\s+/).map((x) => '<li>' + inline(x) + '</li>').join('') + '</ul>'); }
+    else if (/^\s*\d+[.)]\s+/.test(line)) { flush(); out.push('<ol>' + take(/^\s*\d+[.)]\s+/).map((x) => '<li>' + inline(x) + '</li>').join('') + '</ol>'); }
+    else if (/^\s*>\s?/.test(line)) { flush(); out.push('<blockquote>' + take(/^\s*>\s?/).map(inline).join('<br>') + '</blockquote>'); }
+    else if (line.includes('|') && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(lines[i + 1])) {
+      flush();
+      const head = cells(line);
+      i += 2;
+      const rows = [];
+      while (i < lines.length && lines[i].includes('|') && lines[i].trim()) rows.push(cells(lines[i++]));
+      out.push('<div class="tbl"><table><thead><tr>' + head.map((c) => '<th>' + inline(c) + '</th>').join('') + '</tr></thead><tbody>'
+        + rows.map((r) => '<tr>' + r.map((c) => '<td>' + inline(c) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>');
+    } else { para.push(line); i++; }
+  }
+  flush();
+  return out.join('');
+}
+
+const STATUS = { queued: '排队中', running: '进行中', done: '已完成', failed: '失败', stopped: '已停止' };
+const store = {
+  get(k) { try { return localStorage.getItem('agentTasks.' + k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem('agentTasks.' + k, v); } catch (e) {} },
+};
+let list = [];
+let selected = store.get('selected') || '';
+let shown = null;       // 当前显示的任务详情
+let shownKey = '';
+$('prompt').value = store.get('draft') || '';
+$('prompt').addEventListener('input', () => store.set('draft', $('prompt').value));
+
+const clock = (t) => t ? new Date(t).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '';
+const day = (t) => { const d = new Date(t), n = new Date(); return d.toDateString() === n.toDateString() ? clock(t) : (d.getMonth() + 1) + '/' + d.getDate() + ' ' + clock(t); };
+function took(a, b) {
+  if (!a) return '';
+  const s = Math.max(0, Math.round(((b || Date.now()) - a) / 1000));
+  return s < 60 ? s + ' 秒' : Math.floor(s / 60) + ' 分 ' + (s % 60) + ' 秒';
+}
+function tip(text, bad) { $('tip').textContent = text || ''; $('tip').className = bad ? 'err' : ''; }
+async function post(route, params, body) {
+  const res = await fetch(API + route + (params ? '?' + new URLSearchParams(params) : ''), {
+    method: 'POST', headers: { 'X-Files-Action': '1', 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined,
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(j.error || '操作失败（' + res.status + '）');
+  return j;
+}
+function renderList() {
+  const draft = selected ? '' : '<div class="item on draft" data-new="1"><div class="p">新任务</div><div class="m"><span class="dot"></span>还没发送 · 在右边写下要做什么</div></div>';
+  $('list').innerHTML = draft + (list.length ? list.map((t) =>
+    '<div class="item' + (t.id === selected ? ' on' : '') + '" data-id="' + esc(t.id) + '">'
+    + (t.status === 'running' || t.status === 'queued' ? '' : '<button class="x" data-del="' + esc(t.id) + '" title="删除这条记录" aria-label="删除这条记录">×</button>')
+    + '<div class="p">' + esc(t.prompt) + '</div>'
+    + '<div class="m"><span class="dot ' + t.status + '"></span>' + STATUS[t.status] + '<span>' + day(t.createdAt) + '</span>' + (t.continuedFrom ? '<span>续</span>' : '')
+    + (t.source ? '<span title="' + esc(t.source.name) + '">' + (t.source.type === 'schedule' ? '定时' : '自动') + '</span>' : '') + '</div></div>').join('')
+    : (draft ? '' : '<div class="empty" style="padding:24px 14px">还没有任务</div>'));
+}
+function renderDetail(t) {
+  const d = $('detail');
+  if (!t) {
+    shown = null; shownKey = '';
+    d.innerHTML = '<div class="empty"><b class="newhead">新任务</b>在下面写一句话，告诉 Agent 要做什么。<br>这是一个全新的对话，它不会带着之前任务的记忆。<br>它会在自己的隔离环境里动手，做完把结果放在这里；产出的文件在"文件"页。</div>';
+    $('contWrap').hidden = true;
+    return;
+  }
+  const key = t.id + '|' + t.status + '|' + t.steps.length + '|' + (t.result || '').length;
+  const live = t.status === 'running' || t.status === 'queued';
+  $('contWrap').hidden = !t.canContinue;
+  if (key === shownKey && !live) return;
+  const nearBottom = d.scrollHeight - d.scrollTop - d.clientHeight < 80;
+  const switched = !shown || shown.id !== t.id;
+  shown = t; shownKey = key;
+  const meta = ['<span class="dot ' + t.status + '"></span>' + STATUS[t.status]];
+  if (t.model) meta.push(esc(t.model));
+  meta.push('发起于 ' + day(t.createdAt));
+  if (t.startedAt) meta.push('用时 ' + took(t.startedAt, t.endedAt));
+  if (t.turns) meta.push(t.turns + ' 轮');
+  if (t.continuedFrom) meta.push('接着之前的任务');
+  let html = '<div class="head"><div class="q">' + esc(t.prompt) + '</div>'
+    + (live ? '<button class="danger" data-stop="' + esc(t.id) + '">停止</button>' : '<button class="danger" data-del="' + esc(t.id) + '">删除记录</button>') + '</div>'
+    + '<div class="meta">' + meta.map((m) => '<span>' + m + '</span>').join('') + '</div>';
+  // Agent 最后说的那段话就是"结果"，下面的结果框会显示，这里不重复。
+  let steps = t.steps;
+  const lastStep = steps[steps.length - 1];
+  if (t.status === 'done' && lastStep && lastStep.kind === 'say' && lastStep.text.trim() === String(t.result || '').trim()) steps = steps.slice(0, -1);
+  html += steps.map((s) => s.kind === 'say' ? '<div class="step say md">' + md(s.text) + '</div>' : '<div class="step ' + esc(s.kind) + '">' + esc(s.text) + '</div>').join('');
+  if (t.status === 'queued') html += '<div class="working">前面还有任务在跑，轮到它时会自动开始…</div>';
+  if (t.status === 'running') html += '<div class="working">Agent 正在干活…</div>';
+  if (t.status === 'done') html += '<div class="result"><h3>结果</h3><div class="md">' + md(t.result || '（Agent 没有留下文字说明，产出请看"文件"页）') + picsIn(t.result) + '</div></div>';
+  if (t.status === 'failed') html += '<div class="problem"><h3>没有成功</h3>' + esc(t.error || '原因不明') + '</div>';
+  if (t.status === 'stopped') html += '<div class="problem stopped"><h3>已停止</h3>' + esc(t.error || '') + '</div>';
+  d.innerHTML = html;
+  if (switched || nearBottom) d.scrollTop = d.scrollHeight;
+}
+async function refresh() {
+  try {
+    const res = await fetch(API + '/list');
+    if (!res.ok) throw new Error('读取任务失败（' + res.status + '）');
+    list = (await res.json()).tasks;
+    if (selected && !list.some((t) => t.id === selected)) selected = '';
+    renderList();
+    if (selected) {
+      const r = await fetch(API + '/get?' + new URLSearchParams({ id: selected }));
+      renderDetail(r.ok ? await r.json() : null);
+    } else renderDetail(null);
+  } catch (e) { tip(e.message, true); }
+}
+function select(id) { selected = id || ''; store.set('selected', selected); shownKey = ''; shown = null; $('cont').checked = true; refresh(); }
+document.addEventListener('click', async (e) => {
+  // 先看是不是点了按钮（列表里的 × 也在 .item 里面），再当作"选中这条任务"。
+  const item = e.target.closest('[data-stop],[data-del]') ? null : e.target.closest('.item[data-id]');
+  if (item) return select(item.dataset.id);
+  const t = e.target.closest('[data-stop],[data-del]');
+  if (!t) return;
+  try {
+    if (t.dataset.stop) await post('/stop', { id: t.dataset.stop });
+    if (t.dataset.del) { if (!confirm('删除这条任务记录吗？Agent 已经产出的文件不会被删除。')) return; await post('/delete', { id: t.dataset.del }); if (t.dataset.del === selected) select(''); }
+    await refresh();
+  } catch (err) { tip(err.message, true); }
+});
+$('newBtn').onclick = () => {
+  select(''); renderList(); renderDetail(null);   // 立刻切过去，不等下一次刷新
+  $('list').scrollTop = 0;
+  const f = $('form'); f.classList.remove('flash'); void f.offsetWidth; f.classList.add('flash');
+  $('prompt').focus();
+};
+$('form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const prompt = $('prompt').value.trim();
+  if (!prompt) { tip('先写下要它做什么。', true); $('prompt').focus(); return; }
+  $('send').disabled = true;
+  try {
+    const body = { prompt };
+    if (selected && !$('contWrap').hidden && $('cont').checked) body.continueFrom = selected;
+    const r = await post('/create', null, body);
+    $('prompt').value = ''; store.set('draft', '');
+    tip('');
+    select(r.id);
+  } catch (err) { tip(err.message, true); }
+  $('send').disabled = false;
+});
+// 回车发送，Shift+回车换行。正在用输入法选字时的回车不算（那是在确认候选词）。
+$('prompt').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || e.shiftKey || e.isComposing || e.keyCode === 229) return;
+  e.preventDefault();
+  $('form').requestSubmit();
+});
+// ---- 快捷审批 ----
+// Agent 想在服务器上执行的命令，直接显示在输入框上方，不用切到"审批"标签页。
+// 和"审批"页是同一份数据、同一个接口，在哪边处理都一样。
+const OPS = '/ops/api';
+let opsTtl = 900, opsKey = '';
+const RISKY = [/\brm\s+-[a-z]*r/i, /\bmkfs|\bdd\s+if=|\bshred\b/i, /\b(reboot|shutdown|poweroff|halt)\b/i, /\bsystemctl\s+(stop|restart|disable|mask)\b/i,
+  /\bdocker\s+(rm|stop|kill|restart|system\s+prune|volume\s+rm)\b/i, /\b(ufw|iptables|nft)\b/i, /authorized_keys|sshd_config|\bpasswd\b|\buseradd\b|\bchmod\s+-R|\bchown\s+-R/i,
+  /\bdrop\s+(table|database)\b|\btruncate\b|\bdelete\s+from\b/i, /curl[^|]*\|\s*(ba)?sh|wget[^|]*\|\s*(ba)?sh/i, />\s*\/(etc|usr|boot|var\/lib)\b/i, /\bkill(all)?\b|\bpkill\b/i];
+function riskNotes(cmd) {
+  const notes = [];
+  if (RISKY.some((r) => r.test(cmd))) notes.push('这条命令会修改、停止或删除东西，请确认它正是你想要的。');
+  if (/[;&|]{1,2}|\n|\$\(|`/.test(cmd)) notes.push('这是多条命令组合在一起，请把每一段都看一遍。');
+  if (cmd.length > 300) notes.push('命令比较长，请完整读完再决定。');
+  return notes.map((n) => '<div class="warnline">' + n + '</div>').join('');
+}
+const leftText = (t) => { const s = Math.max(0, Math.round(opsTtl - (Date.now() - t) / 1000)); return Math.floor(s / 60) + ' 分 ' + (s % 60) + ' 秒后作废'; };
+// 一条请求要显示成什么样：服务器命令显示"在哪台上执行什么"，邮件显示收件人、标题、正文和附件。
+function headline(r) {
+  return r.kind === 'mail' ? '发邮件给 <b>' + esc((r.to || []).join('、')) + '</b>' : '在 <b>' + esc(r.label) + '</b> 上执行';
+}
+function detail(r) {
+  if (r.kind !== 'mail') return '<div class="cmd">' + esc(r.command) + '</div>';
+  return '<div class="mailsub"><i>标题：</i>' + esc(r.subject) + '</div><div class="cmd mailbody">' + esc(r.body) + '</div>'
+    + ((r.attachments || []).length ? '<div class="why"><i>附件：</i>' + r.attachments.map(esc).join('、') + '</div>' : '');
+}
+const MAIL_NOTE = '<div class="warnline">这封邮件会以你的 Gmail 名义发出，发出后无法撤回。请确认收件人和内容。</div>';
+// CEO Agent 的审核情况：这条请求是哪个 Agent 提的、CEO 怎么说。
+function reviewLine(r) {
+  if (r.kind === 'mail') return '';
+  const who = r.agent === 'auto' ? '自动化 Agent' : '专用 Agent';
+  const rv = r.review || {}, why = rv.reason ? '：' + esc(rv.reason) : '';
+  const t = { waiting: 'CEO Agent 正在审核…（你也可以现在直接决定）', ask: 'CEO Agent 转给你决定' + why, timeout: esc(rv.reason || 'CEO Agent 没有回应，等你决定'),
+    allow: 'CEO Agent 批准' + why, deny: 'CEO Agent 拒绝' + why, rule: '规则库禁止' + why }[rv.state] || '';
+  return '<div class="why"><i>提交者：</i>' + who + (t ? '　<i>审核：</i>' + t : '') + '</div>';
+}
+async function refreshOps() {
+  let d;
+  try {
+    const res = await fetch(OPS + '/list');
+    if (!res.ok) return;
+    d = await res.json();
+  } catch (e) { return; } // 审批服务不可用时，任务页照常使用
+  opsTtl = d.ttlSeconds || opsTtl;
+  const box = $('approvals');
+  const key = d.pending.map((r) => r.id).join(',');
+  box.hidden = !d.pending.length;
+  if (key === opsKey) return; // 待批列表没变就不重画，免得按钮在你要点的时候被换掉
+  opsKey = key;
+  box.innerHTML = '<h3>等你批准' + (d.pending.length > 1 ? '（共 ' + d.pending.length + ' 条）' : '') + '</h3>' + d.pending.map((r) =>
+    '<div class="ap"><div class="where">Agent 想' + headline(r) + '</div>' + detail(r)
+    + '<div class="why"><i>它给出的理由：</i>' + (r.why ? esc(r.why) : '（没有说明）') + '</div>' + (r.kind === 'mail' ? MAIL_NOTE + (r.note ? '<div class="warnline">' + esc(r.note) + '</div>' : '') : riskNotes(r.command)) + reviewLine(r)
+    + '<div class="acts"><span class="left" data-left="' + r.createdAt + '">' + leftText(r.createdAt) + '</span>'
+    + '<button class="no" data-ap="' + esc(r.id) + '" data-ok="0">拒绝</button>' + (r.kind === 'mail' ? '' : '<button data-ap="' + esc(r.id) + '" data-ok="1" data-always="1">允许，以后这条不再问</button>') + '<button class="yes" data-ap="' + esc(r.id) + '" data-ok="1">' + (r.kind === 'mail' ? '允许发送' : '允许执行') + '</button></div></div>').join('');
+}
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-ap]');
+  if (!b) return;
+  const always = b.dataset.always === '1';
+  if (always && !confirm('以后 Agent 在这台服务器上提交一字不差的这条命令时，会直接执行，不再问你。\n\n只建议对"只查看、不改动"的命令这样做。确定吗？')) return;
+  for (const x of document.querySelectorAll('button[data-ap="' + b.dataset.ap + '"]')) x.disabled = true;
+  try {
+    const res = await fetch(OPS + '/decide', { method: 'POST', headers: { 'X-Ops-Action': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ id: b.dataset.ap, approve: b.dataset.ok === '1', always }) });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(j.error || '操作失败（' + res.status + '）');
+    tip('');
+  } catch (err) { tip(err.message, true); }
+  opsKey = ''; // 强制重画
+  await refreshOps();
+  refresh();
+});
+setInterval(() => { for (const el of document.querySelectorAll('[data-left]')) el.textContent = leftText(Number(el.dataset.left)); }, 1000);
+
+// 有任务在跑时 2 秒刷新一次，否则 6 秒一次。待批准的命令每次都查。
+(async function loop() {
+  await Promise.all([refresh(), refreshOps()]);
+  const busy = list.some((t) => t.status === 'running' || t.status === 'queued');
+  setTimeout(loop, busy ? 2000 : 6000);
+})();
+</script>
+</body>
+</html>

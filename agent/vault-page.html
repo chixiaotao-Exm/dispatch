@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>专用密码 Key</title>
+<style>
+:root{--bg:#0d1017;--card:#151a24;--line:#263044;--text:#e8ecf3;--sub:#93a0b5;--mute:#5f6b80;--bad:#ef5b5b;--ok:#34c38f;--warn:#f0a53a;--run:#5b9dff}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 system-ui,"Microsoft YaHei",sans-serif}
+.wrap{max-width:1040px;margin:0 auto;padding:14px 18px 60px}
+h2{font-size:13px;font-weight:400;color:var(--mute);margin:22px 0 8px;display:flex;align-items:center;gap:10px}
+h2 button{margin-left:auto}
+.note{color:var(--sub);font-size:13px;margin:0 0 8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px}
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:0;padding:0;list-style:none;font-size:13px;color:var(--sub)}
+.steps b{display:block;color:var(--text);font-weight:600}
+.item{display:grid;grid-template-columns:minmax(140px,1fr) minmax(160px,2fr) auto;gap:6px 14px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.item:first-child{border-top:0}
+.item .nm{font-weight:600;overflow-wrap:anywhere}
+.item .ac{font-size:12px;color:var(--sub);overflow-wrap:anywhere}
+.item .nt{font-size:13px;color:var(--sub);overflow-wrap:anywhere}
+.item .meta{font-size:12px;color:var(--mute)}
+.item .acts{display:flex;gap:8px}
+.badge{font-size:11px;font-weight:400;border-radius:6px;padding:0 7px;border:1px solid var(--line);color:var(--sub);white-space:nowrap;margin-left:6px}
+label.f{display:block;margin-bottom:10px;font-size:13px;color:var(--sub)}
+label.f small{color:var(--mute);margin-left:6px}
+input[type=text],input[type=password],select,textarea{display:block;width:100%;margin-top:4px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--run)}
+textarea{resize:vertical;min-height:60px}
+.pw{display:flex;gap:8px;align-items:center}
+.pw input{flex:1;font-family:ui-monospace,Consolas,monospace}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+button{background:transparent;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 14px;font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}
+button:hover{border-color:var(--sub)}
+button.yes{background:var(--ok);border-color:var(--ok);color:#04130d;font-weight:600}
+button.del:hover{border-color:var(--bad);color:var(--bad)}
+button:disabled{opacity:.5;cursor:default}
+.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+#msg{font-size:13px}
+#msg.ok{color:var(--ok)}#msg.bad{color:var(--bad)}
+.empty{color:var(--mute);font-size:13px;padding:10px 0}
+.log{display:grid;grid-template-columns:86px 1fr auto;gap:2px 12px;padding:8px 0;border-top:1px solid var(--line);font-size:13px}
+.log:first-child{border-top:0}
+.log .t{color:var(--mute);font-size:12px}
+.log .why{color:var(--sub);grid-column:2 / 4;overflow-wrap:anywhere}
+.tag{font-size:12px;border-radius:6px;padding:0 8px;border:1px solid var(--line);white-space:nowrap;align-self:start}
+.tag.ok{color:var(--ok);border-color:var(--ok)}.tag.no{color:var(--bad);border-color:var(--bad)}.tag.wait{color:var(--warn);border-color:var(--warn)}
+@media (max-width:700px){.item{grid-template-columns:1fr}.two{grid-template-columns:1fr}}
+@media (prefers-color-scheme: light){:root{--bg:#f4f5f7;--card:#fff;--line:#dde1e8;--text:#161a22;--sub:#566176;--mute:#8a94a6}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <ul class="steps">
+      <li><b>1. 你把密码存在这里</b>网站密码、接口密钥都可以。存进去以后，这个页面不会再把它显示出来。</li>
+      <li><b>2. Agent 只能申请</b>专用 Agent 和自动化 Agent 看得到名称和用途，看不到密码；要用必须说明拿它做什么。</li>
+      <li><b>3. 只有 CEO Agent 能批准</b>它对照你写的用途来判断：相符才交出去；不符、说不清或它拿不准，都不交。你在审批页也批准不了。</li>
+    </ul>
+  </div>
+
+  <h2>已存的密码<span id="count"></span><button id="add">＋ 存一条新的</button></h2>
+  <div class="card">
+    <div id="list"></div>
+    <div class="empty" id="none" hidden>还没有存任何密码。点右上角「存一条新的」。</div>
+  </div>
+
+  <div id="formBox" hidden>
+    <h2 id="formTitle">存一条新的</h2>
+    <form class="card" id="form" autocomplete="off">
+      <div class="two">
+        <label class="f">名称<small>Agent 用这个名字来申请，不能有空格</small><input type="text" id="fName" maxlength="40" placeholder="比如：Cloudflare接口密钥" required></label>
+        <label class="f">账号<small>没有可以不填</small><input type="text" id="fAccount" maxlength="200" placeholder="登录名、邮箱或手机号" autocomplete="off"></label>
+      </div>
+      <label class="f">密码 / Key<small id="pwHint"></small>
+        <span class="pw"><input type="password" id="fValue" maxlength="4000" autocomplete="new-password" spellcheck="false"><button type="button" id="show">显示</button></span></label>
+      <label class="f">用途说明<small>写清楚它是哪里的、允许拿来做什么。CEO Agent 就靠这段话决定批不批</small>
+        <textarea id="fNote" maxlength="300" placeholder="比如：Cloudflare 账号的接口密钥，只用来查询和修改 example.com 的域名解析" required></textarea></label>
+      <label class="f">谁可以申请
+        <select id="fAgents"><option value="all">专用 Agent 和自动化 Agent 都可以</option><option value="agent">只有专用 Agent（你亲手发的任务、终端）</option><option value="auto">只有自动化 Agent（定时和自动触发的任务）</option></select></label>
+      <div class="bar"><button class="yes" id="save" type="submit">保存</button><button type="button" id="cancel">取消</button><span id="msg"></span></div>
+    </form>
+  </div>
+
+  <h2>最近的调用记录</h2>
+  <div class="card">
+    <div id="log"></div>
+    <div class="empty" id="nolog" hidden>还没有 Agent 申请过密码。</div>
+  </div>
+  <p class="note">密码保存在 Agent 的电脑之外，Agent 自己读不到、也改不了这里的任何内容。Bot 用不了这个密码库。提醒：密码一旦交给 Agent，就会进入它那次任务的工作过程，所以用途说明请写得具体一些，重要账号建议只存权限最小的那种密钥。</p>
+</div>
+<script>
+const API = '/ops/api';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const p2 = (n) => String(n).padStart(2, '0');
+const when = (t) => { if (!t) return ''; const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()} ${p2(d.getHours())}:${p2(d.getMinutes())}`; };
+const WHO = { all: '两个 Agent 都可以申请', agent: '只有专用 Agent', auto: '只有自动化 Agent' };
+let entries = [], editing = null, listKey = '', logKey = '';
+
+function paintList() {
+  $('count').textContent = entries.length ? `（${entries.length} 条）` : '';
+  $('none').hidden = entries.length > 0;
+  $('list').innerHTML = entries.map((e, i) => `<div class="item">
+      <div><div class="nm">${esc(e.name)}</div>${e.account ? `<div class="ac">账号：${esc(e.account)}</div>` : ''}</div>
+      <div><div class="nt">${esc(e.note)}</div><div class="meta">${WHO[e.agents] || ''} · ${e.uses ? `用过 ${e.uses} 次，上次 ${when(e.lastUsedAt)}` : '还没被用过'} · ${when(e.updatedAt)} 更新</div></div>
+      <div class="acts"><button data-edit="${i}">修改</button><button class="del" data-del="${i}">删除</button></div>
+    </div>`).join('');
+}
+function paintLog(log) {
+  $('nolog').hidden = log.length > 0;
+  $('log').innerHTML = log.map((r) => {
+    const rv = r.review || {};
+    const tag = r.status === 'pending' ? '<span class="tag wait">CEO Agent 审核中</span>'
+      : r.status === 'done' ? `<span class="tag ok">批准 · ${r.taken ? '已取用' : '没有取用'}</span>`
+      : r.status === 'denied' ? '<span class="tag no">没有批准</span>' : '<span class="tag">已作废</span>';
+    return `<div class="log"><span class="t">${when(r.createdAt)}</span><span>${r.agent === 'auto' ? '自动化 Agent' : '专用 Agent'} 申请 <b>${esc(r.secret)}</b></span>${tag}
+      <span></span><span class="why">它的理由：${esc(r.why || '（没有说明）')}${rv.reason ? `<br>CEO Agent：${esc(rv.reason)}` : ''}</span></div>`;
+  }).join('');
+}
+function openForm(e) {
+  editing = e ? e.name : null;
+  $('formBox').hidden = false;
+  $('formTitle').textContent = e ? `修改「${e.name}」` : '存一条新的';
+  $('fName').value = e ? e.name : ''; $('fAccount').value = e ? e.account : ''; $('fNote').value = e ? e.note : ''; $('fAgents').value = e ? e.agents : 'all';
+  $('fValue').value = ''; $('fValue').type = 'password'; $('show').textContent = '显示';
+  $('fValue').required = !e;
+  $('pwHint').textContent = e ? '留空表示不改密码；要换新密码就在这里填' : '';
+  $('fValue').placeholder = e ? '（已保存，不显示）' : '';
+  $('msg').textContent = '';
+  $('formBox').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  (e ? $('fNote') : $('fName')).focus();
+}
+function closeForm() { $('formBox').hidden = true; $('fValue').value = ''; editing = null; }
+async function post(path, body) {
+  const res = await fetch(API + path, { method: 'POST', headers: { 'X-Ops-Action': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(j.error || '操作失败（' + res.status + '）');
+  return j;
+}
+async function load() {
+  try {
+    const res = await fetch(API + '/vault');
+    if (!res.ok) throw new Error('读取失败（' + res.status + '）');
+    const d = await res.json();
+    const lk = JSON.stringify(d.entries), gk = JSON.stringify(d.log.map((r) => [r.id, r.status, r.taken]));
+    if (lk !== listKey) { listKey = lk; entries = d.entries; paintList(); }
+    if (gk !== logKey) { logKey = gk; paintLog(d.log); }
+  } catch (err) { if (!listKey) { $('none').hidden = false; $('none').textContent = err.message; } }
+}
+$('add').onclick = () => openForm(null);
+$('cancel').onclick = closeForm;
+$('show').onclick = () => { const on = $('fValue').type === 'password'; $('fValue').type = on ? 'text' : 'password'; $('show').textContent = on ? '隐藏' : '显示'; };
+$('list').addEventListener('click', async (ev) => {
+  const t = ev.target;
+  if (t.dataset.edit) return openForm(entries[Number(t.dataset.edit)]);
+  if (t.dataset.del) {
+    const e = entries[Number(t.dataset.del)];
+    if (!confirm(`删除「${e.name}」？删掉后无法恢复，Agent 也不能再申请它。`)) return;
+    try { await post('/vault/delete', { name: e.name }); if (editing === e.name) closeForm(); listKey = ''; await load(); } catch (err) { alert(err.message); }
+  }
+});
+$('form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const msg = $('msg');
+  $('save').disabled = true;
+  try {
+    await post('/vault/save', { orig: editing || '', name: $('fName').value.trim(), account: $('fAccount').value.trim(), value: $('fValue').value, note: $('fNote').value.trim(), agents: $('fAgents').value });
+    closeForm(); listKey = ''; await load();
+  } catch (err) { msg.className = 'bad'; msg.textContent = err.message; }
+  $('save').disabled = false;
+});
+load();
+setInterval(() => { if (!document.hidden) load(); }, 4000);
+</script>
+</body>
+</html>

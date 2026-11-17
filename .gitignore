@@ -1,0 +1,15 @@
+# 只留在本地的东西
+.sanitize-map.json
+.repo/
+.claude/
+node_modules/
+# 任何密钥、令牌、状态文件都不进仓库
+*.key
+*.pem
+*.env
+.env*
+*token*
+vault.json
+*-state.json
+*-log.json
+*.bak*

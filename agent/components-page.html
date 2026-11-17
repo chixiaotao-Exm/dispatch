@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>组件库</title>
+<style>
+:root{--bg:#0d1017;--card:#151a24;--line:#263044;--text:#e8ecf3;--sub:#93a0b5;--mute:#5f6b80;--bad:#ef5b5b;--ok:#34c38f;--warn:#f0a53a;--run:#5b9dff;--lime:#c6f24e}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 system-ui,"Microsoft YaHei",sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:14px 18px 60px}
+.top{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:4px}
+.top h1{font-size:17px;margin:0}
+.top .n{color:var(--sub);font-size:13px}
+.top input{margin-left:auto;min-width:200px;flex:0 1 280px;background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:7px 12px;font:inherit;outline:none}
+.top input:focus{border-color:var(--run)}
+.lead{color:var(--sub);font-size:13px;margin:0 0 14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;display:flex;flex-direction:column;min-width:0}
+.shot{height:190px;background:#0a0d13;border-bottom:1px solid var(--line);position:relative;overflow:hidden;cursor:zoom-in;display:block;width:100%;padding:0;border-width:0 0 1px;border-radius:0}
+.shot img{width:100%;height:100%;object-fit:cover;object-position:top;display:block}
+.shot iframe{width:200%;height:380px;border:0;transform:scale(.5);transform-origin:0 0;pointer-events:none;background:#fff}
+.shot.none{cursor:default;display:flex;align-items:center;justify-content:center;color:var(--mute);font-size:13px}
+.shot .zoom{position:absolute;right:8px;bottom:8px;background:rgba(0,0,0,.6);color:#fff;font-size:12px;border-radius:6px;padding:1px 8px}
+.body{padding:14px;display:flex;flex-direction:column;gap:8px;flex:1}
+.name{font-weight:600;font-size:16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.badge{font-size:11px;font-weight:400;border-radius:6px;padding:0 7px;border:1px solid var(--line);color:var(--sub);white-space:nowrap}
+.badge.kind{color:var(--lime);border-color:var(--lime)}.badge.warn{color:var(--warn);border-color:var(--warn)}
+.id{font-size:12px;color:var(--mute);overflow-wrap:anywhere}
+.sum{font-size:13px;color:var(--text)}
+.lab{font-size:12px;color:var(--mute);margin-top:4px}
+.use{font-size:13px;color:var(--sub);white-space:pre-wrap;overflow-wrap:anywhere}
+.ask{display:flex;gap:8px;align-items:flex-start;background:rgba(91,157,255,.08);border:1px solid rgba(91,157,255,.3);border-radius:10px;padding:8px 10px;font-size:13px}
+.ask span{flex:1;overflow-wrap:anywhere}
+.files{list-style:none;margin:0;padding:0;font-size:13px}
+.files li{display:flex;gap:8px;padding:3px 0;border-top:1px dashed var(--line)}
+.files li:first-child{border-top:0}
+.files .t{color:var(--text);white-space:nowrap}
+.files .f{color:var(--mute);margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:12px}
+.foot{display:flex;gap:8px;align-items:center;margin-top:auto;padding-top:8px}
+.foot .when{font-size:12px;color:var(--mute);margin-right:auto}
+button{background:transparent;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:4px 12px;font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}
+button:hover{border-color:var(--sub)}
+.empty{color:var(--sub);font-size:13px;padding:30px 0;text-align:center}
+dialog{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:16px;padding:0;width:min(1000px,96vw);height:90vh}
+dialog::backdrop{background:rgba(0,0,0,.65)}
+.dl{display:flex;flex-direction:column;height:100%}
+.dl header{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--line);font-weight:600}
+.dl header button{margin-left:auto}
+.dl .view{flex:1;overflow:auto;background:#0a0d13;display:flex;justify-content:center}
+.dl .view img{max-width:100%;height:auto;align-self:flex-start}
+.dl .view iframe{width:100%;height:100%;border:0;background:#fff}
+@media (prefers-color-scheme: light){:root{--bg:#f4f5f7;--card:#fff;--line:#dde1e8;--text:#161a22;--sub:#566176;--mute:#8a94a6;--lime:#5c7a00}.shot,.dl .view{background:#eef0f4}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top"><h1>组件库</h1><span class="n" id="count"></span><input id="q" type="search" placeholder="搜索组件…" aria-label="搜索组件"></div>
+  <p class="lead">这里是专用 Agent 攒下来、可以反复使用的现成东西。想用哪个，把卡片里那句话发给 Agent 就行；想让它新做一个存进来，也直接跟它说。</p>
+  <div class="grid" id="grid"></div>
+  <div class="empty" id="empty" hidden></div>
+</div>
+<dialog id="dlg"><div class="dl"><header><span id="dlgName"></span><button id="dlgClose">关闭</button></header><div class="view" id="dlgView"></div></div></dialog>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const size = (n) => n == null ? '' : n < 1024 ? n + ' 字节' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
+const when = (t) => { if (!t) return ''; const d = new Date(t), p = (x) => String(x).padStart(2, '0'); return `${d.getMonth() + 1} 月 ${d.getDate()} 日 ${p(d.getHours())}:${p(d.getMinutes())} 更新`; };
+const fileUrl = (c) => 'api/components/file?id=' + encodeURIComponent(c.id) + '&f=' + encodeURIComponent(c.preview);
+let all = [], key = '';
+
+function card(c, i) {
+  const shot = c.previewType === 'image' ? `<div class="shot" role="button" tabindex="0" data-zoom="${i}" title="点击放大"><img src="${fileUrl(c)}" alt="${esc(c.name || c.id)} 的效果图" loading="lazy"><span class="zoom">点击放大</span></div>`
+    : c.previewType === 'page' ? `<div class="shot" role="button" tabindex="0" data-zoom="${i}" title="点击放大"><iframe data-doc="${i}" sandbox="allow-same-origin" title="${esc(c.name || c.id)} 的预览" tabindex="-1"></iframe><span class="zoom">点击放大</span></div>`
+    : `<div class="shot none">这个组件没有效果图</div>`;
+  return `<div class="card">${shot}<div class="body">
+    <div class="name">${esc(c.name || c.id)}${c.kind ? `<span class="badge kind">${esc(c.kind)}</span>` : ''}${c.hasCard || !c.folder ? '' : '<span class="badge warn">还没有中文说明</span>'}</div>
+    ${c.name ? `<div class="id">文件夹名：${esc(c.id)}</div>` : ''}
+    <div class="sum">${esc(c.summary || (c.folder ? '还不知道它是干什么的。可以让 Agent 给它补一张中文说明卡。' : '单独的一个文件。'))}</div>
+    ${c.usage ? `<div class="lab">怎么用</div><div class="use">${esc(c.usage)}</div>` : ''}
+    ${c.ask ? `<div class="lab">想用它，就对 Agent 说</div><div class="ask"><span>${esc(c.ask)}</span><button data-copy="${i}">复制</button></div>` : ''}
+    ${!c.hasCard && c.folder ? `<div class="lab">让 Agent 补上中文说明</div><div class="ask"><span>给组件库里的 ${esc(c.id)} 补一张中文说明卡（组件.json）</span><button data-copy="${i}" data-fix>复制</button></div>` : ''}
+    <div class="lab">里面有 ${c.files.length} 个文件</div>
+    <ul class="files">${c.files.map((f) => `<li><span class="t">${esc(f.label)}</span><span class="f" title="${esc(f.name)}">${esc(f.name)}${f.size != null ? ' · ' + size(f.size) : ''}</span></li>`).join('')}</ul>
+    <div class="foot"><span class="when">${when(c.updatedAt)}</span><button data-open="${i}">打开文件夹</button></div>
+  </div></div>`;
+}
+let shown = [];
+// 网页模板的预览：取回内容后放进不能跑脚本、不能联网取东西的框里显示。
+const docCache = new Map();
+async function fillDocs() {
+  for (const f of document.querySelectorAll('iframe[data-doc]')) {
+    const c = shown[f.dataset.doc];
+    f.removeAttribute('data-doc');
+    if (!c) continue;
+    try {
+      const u = fileUrl(c);
+      if (!docCache.has(u)) { const r = await fetch(u); if (!r.ok) throw new Error(r.status); docCache.set(u, await r.text()); }
+      f.srcdoc = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">` + docCache.get(u);
+    } catch (e) { f.srcdoc = '<p style="font:14px sans-serif;color:#888;padding:20px">预览加载失败</p>'; }
+  }
+}
+function paint() {
+  const q = $('q').value.trim().toLowerCase();
+  shown = all.filter((c) => !q || [c.id, c.name, c.summary, c.kind, c.usage].join(' ').toLowerCase().includes(q));
+  $('count').textContent = all.length ? `共 ${all.length} 个组件` : '';
+  $('grid').innerHTML = shown.map(card).join('');
+  fillDocs();
+  $('empty').hidden = shown.length > 0;
+  $('empty').textContent = all.length ? '没有找到匹配的组件。' : '组件库还是空的。让专用 Agent 把做过的、以后还会用到的东西存进来，这里就会出现。';
+}
+async function load() {
+  try {
+    const res = await fetch('api/components');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+    const k = JSON.stringify(d.components);
+    if (k === key) return;
+    key = k; all = d.components; docCache.clear(); paint();
+  } catch (e) {
+    if (!all.length) { $('grid').innerHTML = ''; $('empty').hidden = false; $('empty').textContent = '读不到组件库：' + e.message; }
+  }
+}
+$('q').addEventListener('input', paint);
+document.addEventListener('click', async (e) => {
+  const z = e.target.closest('[data-zoom]');
+  if (z) {
+    const c = shown[z.dataset.zoom];
+    $('dlgName').textContent = (c.name || c.id) + ' · 预览';
+    $('dlgView').innerHTML = c.previewType === 'image' ? `<img src="${fileUrl(c)}" alt="">` : `<iframe data-doc="${z.dataset.zoom}" sandbox="allow-same-origin" title="预览"></iframe>`;
+    fillDocs();
+    return $('dlg').showModal();
+  }
+  const cp = e.target.closest('[data-copy]');
+  if (cp) {
+    const c = shown[cp.dataset.copy];
+    const text = 'fix' in cp.dataset ? `给组件库里的 ${c.id} 补一张中文说明卡（组件.json）` : c.ask;
+    try { await navigator.clipboard.writeText(text); cp.textContent = '已复制'; } catch (err) { cp.textContent = '复制失败'; }
+    return setTimeout(() => { cp.textContent = '复制'; }, 1500);
+  }
+  const op = e.target.closest('[data-open]');
+  if (op) {
+    const c = shown[op.dataset.open];
+    // 在调度台里：切到"文件"页并打开这个文件夹；单独打开本页时，直接跳到文件页。
+    try {
+      const pd = window.parent !== window && window.parent.document;
+      if (pd && pd.getElementById('term')) {
+        const b = pd.createElement('button');
+        b.dataset.term = 'files'; b.dataset.path = c.path; b.hidden = true;
+        pd.body.appendChild(b); b.click(); b.remove();
+        return;
+      }
+    } catch (err) { /* 不在调度台里 */ }
+    window.open('/files/?path=' + encodeURIComponent(c.path), '_blank', 'noopener');
+  }
+});
+document.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('.shot[data-zoom]')) { e.preventDefault(); e.target.click(); } });
+$('dlgClose').addEventListener('click', () => $('dlg').close());
+$('dlg').addEventListener('click', (e) => { if (e.target === $('dlg')) $('dlg').close(); });
+$('dlg').addEventListener('close', () => { $('dlgView').innerHTML = ''; });
+load();
+setInterval(() => { if (!document.hidden) load(); }, 8000);
+</script>
+</body>
+</html>

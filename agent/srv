@@ -1,0 +1,79 @@
+#!/usr/bin/env node
+// srv：让容器里的 Agent 在主人的服务器上执行一条命令。
+// 命令不会直接执行：它被提交给容器外的"审批中间人"，主人在调度台上点了"允许"之后才会运行。
+// 用法：
+//   srv --list                              看有哪些服务器
+//   srv <服务器> "<命令>" [--why "为什么"]    提交一条命令，等待批准，然后打印输出
+//   srv <服务器> --inspect                   例行巡检（内置只读命令，不需要审批）
+const http = require('http');
+
+const SOCKET = process.env.OPS_SOCKET || '/home/agent/.ops/ops.sock';
+const WAIT_MS = 16 * 60 * 1000;
+const WHO = process.env.OPS_AGENT === 'auto' ? 'auto' : 'agent';   // 自动化任务里是 auto，其余（发任务、终端）是 agent
+
+function call(method, path, body) {
+  return new Promise((resolve, reject) => {
+    const data = body ? Buffer.from(JSON.stringify(body)) : null;
+    const req = http.request({ socketPath: SOCKET, path, method, headers: data ? { 'Content-Type': 'application/json', 'Content-Length': data.length } : {} }, (res) => {
+      let s = '';
+      res.on('data', (c) => { s += c; });
+      res.on('end', () => { try { resolve({ status: res.statusCode, body: JSON.parse(s || '{}') }); } catch (e) { reject(new Error('审批服务返回了无法识别的内容')); } });
+    });
+    req.on('error', () => reject(new Error('连不上审批服务（' + SOCKET + '）。服务器操作功能可能没有启用。')));
+    if (data) req.write(data);
+    req.end();
+  });
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const say = (s) => process.stderr.write('[srv] ' + s + '\n');
+
+(async () => {
+  const argv = process.argv.slice(2);
+  if (!argv.length || argv[0] === '-h' || argv[0] === '--help') {
+    console.log('用法：\n  srv --list\n  srv <服务器> --inspect                      例行巡检：负载、内存、磁盘、失败的服务、占用最高的进程、容器状态（只读，不需要审批）\n  srv <服务器> "<命令>" [--why "为什么要执行"]\n除了 --inspect 和主人设为"以后都允许"的命令（要一字不差），每条命令都要主人在调度台上批准后才会执行。');
+    process.exit(argv.length ? 0 : 2);
+  }
+  if (argv[0] === '--list') {
+    const r = await call('GET', '/servers');
+    for (const s of r.body.servers) console.log(s.name.padEnd(8) + s.label + (s.about ? '  —  ' + s.about : ''));
+    return;
+  }
+  let why = '';
+  const i = argv.indexOf('--why');
+  if (i >= 0) { why = argv[i + 1] || ''; argv.splice(i, 2); }
+  const server = argv[0];
+  const inspect = argv.length === 2 && argv[1] === '--inspect';
+  const command = inspect ? '' : argv.slice(1).join(' ');
+  if (!inspect && !command.trim()) { say('没有给出要执行的命令。用法：srv <服务器> "<命令>" [--why "为什么"]'); process.exit(2); }
+
+  const created = await call('POST', '/request', inspect ? { server, preset: 'inspect', why, agent: WHO } : { server, command, why, agent: WHO });
+  if (created.status !== 200) { say('没有提交成功：' + (created.body.error || created.status)); process.exit(2); }
+  const id = created.body.id;
+  if (created.body.blocked) { say('这条命令被主人的规则库禁止（' + created.body.blocked + '），没有执行。不要换个写法绕过，停下来向主人说明你想做什么。'); process.exit(3); }
+  let stage = '';
+  if (created.body.auto) say(inspect ? '例行巡检不需要审批，正在执行…' : '这条命令主人已设为免审批，正在执行…');
+  else { say('已提交审核：在 ' + server + ' 上执行  ' + command); say('先由 CEO Agent 审核；它拿不准的会转给主人本人批准（最多等 15 分钟）'); }
+  const started = Date.now();
+  let announcedRun = Boolean(created.body.auto);
+  for (;;) {
+    await sleep(1500);
+    const r = (await call('GET', '/result?id=' + id)).body;
+    const rv = r.review || {};
+    if (r.status === 'pending' && (rv.state === 'ask' || rv.state === 'timeout') && stage !== rv.state) { stage = rv.state; say('CEO Agent 把这条命令转给主人本人决定' + (rv.reason ? '：' + rv.reason : '') + '。等待主人批准…'); }
+    if (r.status === 'pending') {
+      if (Date.now() - started > WAIT_MS) { say('等待超时。'); process.exit(4); }
+      continue;
+    }
+    if (r.status === 'denied' && rv.state === 'deny') { say('CEO Agent 拒绝了这条命令' + (rv.reason ? '：' + rv.reason : '') + '。不要换个写法重试，停下来向主人说明你想做什么。'); process.exit(3); }
+    if (r.status === 'blocked') { say('这条命令被主人的规则库禁止，没有执行。'); process.exit(3); }
+    if (r.status === 'denied') { say('主人拒绝了这条命令。不要换个写法重试，停下来向主人说明你想做什么。'); process.exit(3); }
+    if (r.status === 'expired') { say('超过 15 分钟没有人批准，这条请求已作废。'); process.exit(4); }
+    if (r.status === 'running') { if (!announcedRun) { say((rv.state === 'allow' ? 'CEO Agent 已批准' : '已批准') + '，正在执行…'); announcedRun = true; } continue; }
+    if (r.status === 'done') {
+      if (r.stdout) process.stdout.write(r.stdout.endsWith('\n') ? r.stdout : r.stdout + '\n');
+      if (r.stderr) process.stderr.write(r.stderr.endsWith('\n') ? r.stderr : r.stderr + '\n');
+      say('执行完毕，退出码 ' + r.exitCode);
+      process.exit(typeof r.exitCode === 'number' ? Math.min(Math.max(r.exitCode, 0), 255) : 1);
+    }
+  }
+})().catch((e) => { say(e.message); process.exit(5); });

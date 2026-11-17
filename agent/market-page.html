@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>市场</title>
+<style>
+:root{--bg:#0d1017;--card:#151a24;--line:#263044;--text:#e8ecf3;--sub:#93a0b5;--mute:#5f6b80;--bad:#ef5b5b;--ok:#34c38f;--warn:#f0a53a;--run:#5b9dff;--pur:#b48cff}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 system-ui,"Microsoft YaHei",sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:14px 18px 60px}
+.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;position:sticky;top:0;background:var(--bg);padding:6px 0 10px;z-index:2}
+.bar input{flex:1;min-width:220px;background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:9px 14px;font:inherit;outline:none}
+.bar input:focus{border-color:var(--run)}
+.chip{border:1px solid var(--line);border-radius:999px;padding:5px 14px;font-size:13px;color:var(--sub);background:transparent;cursor:pointer;white-space:nowrap}
+.chip.on{border-color:var(--run);color:var(--text);background:rgba(91,157,255,.12)}
+.src{color:var(--mute);font-size:12px;margin:2px 0 10px}
+.src a{color:var(--sub)}
+h2{font-size:13px;font-weight:400;color:var(--mute);margin:18px 0 8px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:6px;min-width:0;transition:border-color .15s,transform .15s}
+.card:hover{border-color:#3a4a68;transform:translateY(-1px)}
+.card.inst{border-color:rgba(52,195,143,.55)}
+.name{font-weight:600;font-size:15px;overflow-wrap:anywhere;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.badge{font-size:11px;font-weight:400;border-radius:6px;padding:0 7px;border:1px solid var(--line);color:var(--sub);white-space:nowrap}
+.badge.off{color:var(--pur);border-color:var(--pur)}.badge.ok{color:var(--ok);border-color:var(--ok)}.badge.warn{color:var(--warn);border-color:var(--warn)}
+.from{font-size:12px;color:var(--mute);overflow-wrap:anywhere}
+.desc{font-size:13px;color:var(--sub);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;min-height:20px}
+.foot{display:flex;gap:8px;align-items:center;margin-top:auto;padding-top:8px}
+.foot .n{font-size:12px;color:var(--mute);margin-right:auto}
+button{background:transparent;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:5px 14px;font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}
+button:hover{border-color:var(--sub)}
+button.yes{background:var(--ok);border-color:var(--ok);color:#04130d;font-weight:600}
+button.del:hover{border-color:var(--bad);color:var(--bad)}
+button:disabled{opacity:.5;cursor:default}
+.empty{color:var(--mute);font-size:13px;padding:20px 0}
+.viewonly{font-size:12px;color:var(--mute);margin-right:auto}
+#tip{font-size:13px;min-height:20px;margin:4px 0}
+#tip.bad{color:var(--bad)}#tip.ok{color:var(--ok)}
+dialog{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:16px;padding:0;width:min(760px,94vw);max-height:88vh}
+dialog::backdrop{background:rgba(0,0,0,.6)}
+.dl{display:flex;flex-direction:column;max-height:88vh}
+.dl header{padding:16px 20px 10px;border-bottom:1px solid var(--line)}
+.dl header .name{font-size:17px}
+.dl .body{padding:14px 20px;overflow:auto;font-size:13px}
+.dl footer{padding:12px 20px;border-top:1px solid var(--line);display:flex;gap:10px;justify-content:flex-end;align-items:center;flex-wrap:wrap}
+.dl footer .msg{margin-right:auto;font-size:13px;color:var(--bad)}
+pre{white-space:pre-wrap;word-break:break-word;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px;font:12px/1.6 ui-monospace,Consolas,monospace;color:var(--sub);margin:8px 0 0;max-height:46vh;overflow:auto}
+.warnbox{border:1px solid var(--warn);color:var(--warn);border-radius:10px;padding:8px 12px;font-size:13px;margin:10px 0}
+.opt{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:10px}
+.opt.sel{border-color:var(--run)}
+.opt label.pick{display:flex;gap:8px;align-items:flex-start;cursor:pointer;overflow-wrap:anywhere}
+.opt .why{color:var(--warn);font-size:12px;margin-left:24px}
+.fields{display:grid;gap:8px;margin:10px 0 0 24px}
+.fields label{display:grid;gap:3px;font-size:12px;color:var(--sub)}
+.fields input{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font:inherit;font-size:13px;outline:none}
+.fields input:focus{border-color:var(--run)}
+.meta{color:var(--sub);font-size:13px}
+.meta a{color:var(--run)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="bar">
+    <input id="q" type="search" autocomplete="off">
+    <button class="chip on" id="srcZh">中文社区</button>
+    <button class="chip" id="srcEn">英文社区</button>
+    <button class="chip" id="tabMine">已安装</button>
+  </div>
+  <div class="src" id="src"></div>
+  <div id="tip"></div>
+  <div class="grid" id="grid"></div>
+  <div class="empty" id="empty" hidden></div>
+  <div style="text-align:center;margin-top:16px"><button id="more" hidden>加载更多</button></div>
+</div>
+<dialog id="dlg"><div class="dl"><header id="dHead"></header><div class="body" id="dBody"></div><footer id="dFoot"></footer></div></dialog>
+<script>
+const VIEW = new URLSearchParams(location.search).get('view') === 'mcp' ? 'mcp' : 'skills';
+const API = '/tasks/api/market';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const num = (n) => n >= 10000 ? (n / 10000).toFixed(n >= 100000 ? 0 : 1) + ' 万' : String(n);
+const link = (url, text) => '<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + esc(text) + '</a>';
+let data = null, tab = 'all', src = 'zh', items = [], cursor = null, seq = 0;
+
+document.title = VIEW === 'mcp' ? 'MCP 市场' : '技能市场';
+$('q').placeholder = VIEW === 'mcp' ? '搜索 MCP 工具，比如 高德地图、数据库、浏览器、github、notion' : '搜索技能，比如 小红书、公众号、表格、pdf、前端';
+const SRC_ZH = VIEW === 'mcp'
+  ? '中文社区：' + link('https://www.modelscope.cn/mcp', '魔搭 ModelScope · MCP 广场') + '（阿里的开源社区，名称和说明都是中文）。搜不到时自动换成英文社区。'
+  : '中文社区：' + link('https://skillsmp.com/zh', 'SkillsMP') + '（收录 GitHub 上的公开技能，中文写的排在前面；免登录每天能查的次数有限，结果会缓存几小时）。搜不到时自动换成英文社区。';
+const SRC_EN = VIEW === 'mcp'
+  ? '数据来自 MCP 官方注册表 ' + link('https://registry.modelcontextprotocol.io', 'registry.modelcontextprotocol.io') + '。想看更多可以去逛：' + [['https://smithery.ai', 'Smithery'], ['https://glama.ai/mcp/servers', 'Glama'], ['https://www.pulsemcp.com/servers', 'PulseMCP'], ['https://mcp.so', 'mcp.so']].map((x) => link(x[0], x[1])).join(' · ') + '（这几个没有开放接口，只能跳过去看）'
+  : '官方精选来自 ' + link('https://github.com/anthropics/skills', 'Anthropic 官方技能仓库') + '；搜索结果来自 ' + link('https://skills.sh', 'skills.sh') + '（社区技能目录，按安装量排序）。';
+
+function tip(text, kind) { $('tip').className = kind || ''; $('tip').textContent = text || ''; }
+async function call(method, path, body) {
+  const res = await fetch(API + path, { method, headers: body ? { 'X-Files-Action': '1', 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(j.error || '请求失败（' + res.status + '）'), { status: res.status });
+  return j;
+}
+const mineOf = (x) => VIEW === 'mcp'
+  ? data.installed.find((i) => i.registryName === x.name)
+  : data.installed.find((i) => (i.source === x.source && i.skillId === x.skillId) || (!i.source && i.dir === x.skillId));
+
+function paint() {
+  const grid = $('grid'), empty = $('empty');
+  $('srcZh').classList.toggle('on', tab === 'all' && src === 'zh'); $('srcEn').classList.toggle('on', tab === 'all' && src === 'en'); $('tabMine').classList.toggle('on', tab === 'mine');
+  $('src').innerHTML = src === 'zh' ? SRC_ZH : SRC_EN;
+  $('tabMine').textContent = '已安装' + (data ? ' ' + data.installed.length : '');
+  if (!data) return;
+  let html = '';
+  if (tab === 'mine') {
+    html = data.installed.map((i, n) => VIEW === 'mcp'
+      ? '<div class="card inst"><div class="name">' + esc(i.key) + '<span class="badge ok">已安装</span></div><div class="from">' + esc(i.registryName || '手动添加的') + (i.version ? ' · ' + esc(i.version) : '') + '</div>'
+        + '<div class="desc">' + esc(i.how) + (i.settings.length ? '　已填：' + esc(i.settings.join('、')) : '') + '</div><div class="foot"><span class="n"></span><button class="del" data-rm="' + n + '">卸载</button></div></div>'
+      : '<div class="card inst"><div class="name">' + esc(i.name) + '<span class="badge ok">已安装</span></div><div class="from">' + esc(i.source || '自己写的 / 手动放进来的') + '</div>'
+        + '<div class="desc">' + esc(i.description) + '</div><div class="foot"><span class="n"></span><button class="del" data-rm="' + n + '">卸载</button></div></div>').join('');
+    empty.textContent = VIEW === 'mcp' ? 'MCP 库里还没有工具。到"市场"里挑一个装上。' : '技能库里还没有技能。到"市场"里挑一个装上。';
+  } else {
+    html = items.map((x, n) => {
+      const mine = mineOf(x);
+      if (VIEW === 'mcp') {
+        const can = !x.options || x.options.some((o) => !o.blocked);
+        return '<div class="card' + (mine ? ' inst' : '') + '"><div class="name">' + esc(x.title || x.name.split('/').pop()) + (mine ? '<span class="badge ok">已安装</span>' : '') + (can ? '' : '<span class="badge warn">不能一键安装</span>') + '</div>'
+          + '<div class="from">' + esc(x.name) + (x.version ? ' · ' + esc(x.version) : '') + (x.tags && x.tags.length ? ' · ' + esc(x.tags.join(' / ')) : '') + '</div><div class="desc">' + esc(x.description) + '</div>'
+          + '<div class="foot"><span class="n">' + esc(x.options ? [...new Set(x.options.map((o) => o.kind === 'remote' ? '远程' : o.kind))].join(' / ') : x.views ? num(x.views) + ' 次浏览' : '') + '</span><button data-open="' + n + '">' + '查看详情' + '</button></div></div>';
+      }
+      return '<div class="card' + (mine ? ' inst' : '') + '"><div class="name">' + esc(x.name) + (x.official ? '<span class="badge off">官方</span>' : '') + (x.lang === 'zh' ? '<span class="badge">中文</span>' : '') + (mine ? '<span class="badge ok">已安装</span>' : '') + '</div>'
+        + '<div class="from">' + esc(x.source) + '</div><div class="desc">' + esc(x.description) + '</div>'
+        + '<div class="foot"><span class="n">' + (x.installs ? num(x.installs) + ' 次安装' : x.stars ? '★ ' + num(x.stars) : '') + '</span><button data-open="' + n + '">' + '查看详情' + '</button></div></div>';
+    }).join('');
+    empty.textContent = '没有找到。换个关键词试试（英文关键词结果更多）。';
+  }
+  grid.innerHTML = html;
+  empty.hidden = Boolean(html);
+  $('more').hidden = !(tab === 'all' && VIEW === 'mcp' && cursor);
+}
+async function load(append) {
+  const my = ++seq, q = $('q').value.trim();
+  if (!append) { tip('正在加载…'); cursor = null; }
+  try {
+    const d = await call('GET', '/' + VIEW + '?src=' + src + '&q=' + encodeURIComponent(q) + (append && cursor ? '&cursor=' + encodeURIComponent(cursor) : ''));
+    if (my !== seq) return;
+    data = d;
+    const got = VIEW === 'mcp' ? d.servers : d.items;
+    items = append ? items.concat(got) : got;
+    cursor = d.next || null;
+    if (d.note) { src = d.src; cursor = d.asked === d.src ? cursor : null; }
+    tip((d.note ? d.note + '。' : '') + (q ? '搜到 ' + items.length + ' 个' + (cursor ? '（还有更多）' : '') : VIEW === 'skills' ? (d.src === 'zh' ? '中文社区里热门的 ' : '官方精选 ') + items.length + ' 个，输入关键词可以搜索更多' : '热门的 ' + items.length + ' 个，输入关键词可以搜索更多'), d.note ? '' : '');
+    paint();
+  } catch (e) { if (my === seq) { tip(e.message, 'bad'); if (!data) data = { installed: [] }; } }
+}
+let timer;
+$('q').oninput = () => { clearTimeout(timer); timer = setTimeout(() => { tab = 'all'; if ($('q').value.trim() === '' || /[\u4e00-\u9fff]/.test($('q').value)) src = 'zh'; load(false); }, 700); };
+$('srcZh').onclick = () => { tab = 'all'; src = 'zh'; load(false); };
+$('srcEn').onclick = () => { tab = 'all'; src = 'en'; load(false); };
+$('tabMine').onclick = () => { tab = 'mine'; paint(); };
+$('more').onclick = () => load(true);
+
+// ---- 详情与安装 ----
+const dlg = $('dlg');
+dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
+function foot(html) { $('dFoot').innerHTML = (html.includes('id="dGo"') ? '<span class="viewonly">现在只是查看，不点安装就不会装</span>' : '') + '<span class="msg" id="dMsg"></span>' + html + '<button id="dClose">关闭</button>'; $('dClose').onclick = () => dlg.close(); }
+async function openSkill(x) {
+  $('dHead').innerHTML = '<div class="name">' + esc(x.name) + (x.official ? '<span class="badge off">官方</span>' : '') + '</div><div class="from">' + esc(x.source) + '</div>';
+  $('dBody').innerHTML = '<div class="meta">正在读取技能内容…</div>'; foot(''); dlg.showModal();
+  let d;
+  try { d = await call('GET', '/skills/detail?source=' + encodeURIComponent(x.source) + '&skillId=' + encodeURIComponent(x.skillId) + (x.path !== undefined ? '&path=' + encodeURIComponent(x.path) : '')); }
+  catch (e) { $('dBody').innerHTML = '<div class="warnbox">' + esc(e.message) + '</div>'; return; }
+  const mine = mineOf(x);
+  $('dBody').innerHTML = '<div class="meta">' + esc(d.description) + '</div><div class="meta" style="margin-top:8px">' + d.files + ' 个文件 · ' + (d.bytes / 1024).toFixed(0) + ' KB · ' + link(d.url, '在 GitHub 上查看全部文件') + '</div>'
+    + (x.official ? '' : '<div class="warnbox">这是社区里的人写的技能，不是官方的。技能会变成 Agent 做事时遵循的说明' + (d.hasScripts ? '，而且这个技能带有脚本，Agent 可能会运行它们' : '') + '。装之前请看一眼下面的内容，确认它做的事是你想要的。</div>')
+    + (x.official && d.hasScripts ? '<div class="meta" style="margin-top:8px">这个技能带有脚本，Agent 使用它时可能会运行这些脚本。</div>' : '')
+    + '<pre>' + esc(d.readme) + '</pre>';
+  foot(mine ? '<button class="del" id="dRm">卸载</button><button class="yes" id="dGo">重新安装（更新）</button>' : '<button class="yes" id="dGo">安装到技能库</button>');
+  $('dGo').onclick = async () => {
+    $('dGo').disabled = true; $('dGo').textContent = '正在安装…'; $('dMsg').textContent = '';
+    try {
+      await call('POST', '/skills/install', { source: x.source, skillId: x.skillId, path: x.path, overwrite: Boolean(mine) || undefined });
+      dlg.close(); await load(false); tip('已安装"' + x.name + '"。Agent 下一个任务开始就能用。', 'ok');
+    } catch (e) {
+      if (e.status === 409 && confirm('技能库里已经有一个同名的技能（可能是你自己放的）。要用市场里的这个覆盖它吗？')) {
+        try { await call('POST', '/skills/install', { source: x.source, skillId: x.skillId, path: x.path, overwrite: true }); dlg.close(); await load(false); tip('已安装"' + x.name + '"。', 'ok'); return; } catch (e2) { e = e2; }
+      }
+      $('dMsg').textContent = e.message; $('dGo').disabled = false; $('dGo').textContent = '安装到技能库';
+    }
+  };
+  if (mine) $('dRm').onclick = async () => { if (await removeSkill(mine)) dlg.close(); };
+}
+async function removeSkill(i) {
+  if (!confirm('从技能库里卸载"' + i.name + '"？它的文件会被删除。')) return false;
+  try { await call('POST', '/skills/uninstall', { dir: i.dir }); await load(false); tip('已卸载"' + i.name + '"', 'ok'); return true; } catch (e) { tip(e.message, 'bad'); return false; }
+}
+function openMcp(x) {
+  const mine = mineOf(x);
+  let sel = x.options.findIndex((o) => !o.blocked);
+  $('dHead').innerHTML = '<div class="name">' + esc(x.title || x.name.split('/').pop()) + (mine ? '<span class="badge ok">已安装</span>' : '') + '</div><div class="from">' + esc(x.name) + (x.version ? ' · ' + esc(x.version) : '') + '</div>';
+  const draw = () => {
+    $('dBody').innerHTML = '<div class="meta">' + esc(x.description) + '</div>'
+      + '<div class="meta" style="margin-top:6px">' + [x.repo && link(x.repo, '源代码'), x.website && link(x.website, '官网')].filter(Boolean).join(' · ') + '</div>'
+      + '<div class="warnbox">MCP 工具是别人写的程序或网络服务，装上之后 Agent 可以调用它，它也能看到 Agent 发给它的内容。注册表不保证它安全，只装你了解、信得过的。下面填的密钥会保存在 MCP 库的 servers.json 里，Agent 读得到。</div>'
+      + (x.options.length ? '' : '<div class="meta">这条记录没有写安装方式，只能到它的主页按说明手动配置。</div>')
+      + x.options.map((o, i) => '<div class="opt' + (i === sel ? ' sel' : '') + '"><label class="pick"><input type="radio" name="opt" value="' + i + '"' + (i === sel ? ' checked' : '') + (o.blocked ? ' disabled' : '') + '><span>' + esc(o.label) + '</span></label>'
+        + (o.blocked ? '<div class="why">' + esc(o.blocked) + '</div>' : '')
+        + (i === sel && o.fields.length ? '<div class="fields">' + o.fields.map((f) => '<label>' + esc(f.name) + (f.required ? '（必填）' : '（可不填）') + (f.description ? ' — ' + esc(f.description) : '')
+          + '<input data-field="' + esc(f.name) + '" type="' + (f.secret ? 'password' : 'text') + '" autocomplete="off" placeholder="' + esc(f.hint || f.def || '') + '"></label>').join('') + '</div>' : '')
+        + '</div>').join('');
+    if (x.readme) $('dBody').insertAdjacentHTML('beforeend', '<h2 style="font-size:13px;font-weight:400;color:var(--mute);margin:14px 0 0">说明</h2><pre>' + esc(x.readme) + '</pre>');
+    for (const r of $('dBody').querySelectorAll('input[name=opt]')) r.onchange = () => { sel = Number(r.value); draw(); };
+  };
+  draw();
+  foot((mine ? '<button class="del" id="dRm">卸载</button>' : '') + (sel >= 0 ? '<button class="yes" id="dGo">' + (mine ? '重新安装（更新）' : '安装到 MCP 库') + '</button>' : ''));
+  if (sel >= 0) $('dGo').onclick = async () => {
+    const values = {};
+    for (const i of $('dBody').querySelectorAll('input[data-field]')) values[i.dataset.field] = i.value;
+    $('dGo').disabled = true; $('dMsg').textContent = '';
+    try {
+      const r = await call('POST', '/mcp/install', { src: x.src, name: x.name, option: sel, values, overwrite: Boolean(mine) || undefined });
+      dlg.close(); await load(false); tip('已把"' + r.key + '"装进 MCP 库。Agent 下一个任务开始就能用。', 'ok');
+    } catch (e) { $('dMsg').textContent = e.message; $('dGo').disabled = false; }
+  };
+  if (mine) $('dRm').onclick = async () => { if (await removeMcp(mine)) dlg.close(); };
+  dlg.showModal();
+}
+async function removeMcp(i) {
+  if (!confirm('从 MCP 库里卸载"' + i.key + '"？')) return false;
+  try { await call('POST', '/mcp/uninstall', { key: i.key }); await load(false); tip('已卸载"' + i.key + '"', 'ok'); return true; } catch (e) { tip(e.message, 'bad'); return false; }
+}
+$('grid').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.open) {
+    const x = items[Number(b.dataset.open)];
+    if (VIEW !== 'mcp') return openSkill(x);
+    if (x.options) return openMcp(x);
+    b.disabled = true; // 中文社区的列表里没有安装方式，点开时再取详情
+    call('GET', '/mcp/detail?id=' + encodeURIComponent(x.name)).then((d) => { Object.assign(x, d); openMcp(x); }, (err) => tip(err.message, 'bad')).finally(() => { b.disabled = false; });
+    return;
+  }
+  if (b.dataset.rm) { const i = data.installed[Number(b.dataset.rm)]; return VIEW === 'mcp' ? removeMcp(i) : removeSkill(i); }
+});
+load(false);
+</script>
+</body>
+</html>

@@ -1,0 +1,92 @@
+{
+  "port": 4780,
+  "intervalMinutes": 5,
+  "slowMs": 3000,
+  "certWarnDays": 14,
+  "timezone": "America/New_York",
+  "briefMinutes": 30,
+  "llm": {
+    "ceoModel": "claude-opus-5-5",
+    "ceoBackup": "gpt-6.1-sol",
+    "lines": [
+      {
+        "key": "pojia",
+        "name": "破甲线路 Agent",
+        "model": "deepseek-v4.1-flash-abliterated",
+        "side": "left"
+      },
+      {
+        "key": "qiye",
+        "name": "开发者",
+        "model": "gpt-6-astra",
+        "side": "right"
+      }
+    ]
+  },
+  "sites": [
+    {
+      "name": "主站",
+      "url": "https://example.com/"
+    },
+    {
+      "name": "codex",
+      "url": "https://codex.example.com/"
+    },
+    {
+      "name": "sms",
+      "url": "https://sms.example.com/"
+    },
+    {
+      "name": "wybot",
+      "url": "https://wybot.example.com/"
+    },
+    {
+      "name": "region",
+      "url": "https://region.example.com/"
+    }
+  ],
+  "agent": {
+    "name": "专用 Agent",
+    "terminalUrl": "/term/",
+    "terminalProbe": "http://127.0.0.1:7682/term/token",
+    "eventsUrl": "http://127.0.0.1:7684/tasks/api/auto/events",
+    "opsUrl": "http://127.0.0.1:7694",
+    "llmUrl": "http://127.0.0.1:7684/tasks/api/llm",
+    "sftp": {
+      "host": "203.0.113.30",
+      "port": 2222,
+      "user": "files"
+    }
+  },
+  "music": {
+    "name": "桃音",
+    "url": "https://wybot.example.com"
+  },
+  "relay": {
+    "name": "示例中转站",
+    "url": "https://example.com/home",
+    "statsFile": "/run/dispatch-relay/stats.json"
+  },
+  "servers": [
+    {
+      "ip": "203.0.113.10",
+      "mode": "local",
+      "plan": "HFC 24 GB"
+    },
+    {
+      "ip": "203.0.113.20",
+      "mode": "ssh",
+      "name": "server-b",
+      "plan": "CN2 GIA 40G"
+    },
+    {
+      "ip": "203.0.113.30",
+      "mode": "ssh",
+      "plan": "NVMe 16 GB"
+    }
+  ],
+  "serverLimits": {
+    "diskWarnPercent": 85,
+    "memWarnPercent": 90
+  }
+}

@@ -1,0 +1,22 @@
+[Unit]
+Description=Encrypted tunnel from the dispatch console to the agent container's web terminal
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# 把本机 127.0.0.1:7682 / 7684 接到 Agent 所在服务器上只对本地开放的 7681（网页终端）和 7683（文件管理）。
+# 用的密钥在对方那边被限制为"只能转发这两个端口"，不能执行任何命令。
+DynamicUser=yes
+LoadCredential=key:/etc/dispatch/tunnel_ed25519
+ExecStart=/usr/bin/ssh -N -i %d/key -o IdentitiesOnly=yes -o BatchMode=yes \
+  -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+  -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/etc/dispatch/known_hosts -o LogLevel=ERROR \
+  -L 127.0.0.1:7682:127.0.0.1:7681 -L 127.0.0.1:7684:127.0.0.1:7683 -L 127.0.0.1:7694:127.0.0.1:7692 root@203.0.113.30
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

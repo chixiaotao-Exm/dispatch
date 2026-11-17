@@ -1,0 +1,5 @@
+{
+  "main": { "host": "203.0.113.10", "label": "server-a（HFC 24 GB）", "about": "主力机：中转站、主站、codex、sms、调度台都在这里" },
+  "bwg": { "host": "203.0.113.20", "label": "server-b（CN2 GIA 40G）", "about": "小机器：nginx 和 sing-box" },
+  "ny": { "host": "127.0.0.1", "label": "server-c（NVMe 16 GB）", "about": "专用 Agent 的容器就跑在这台上" }
+}

@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>规则库 · 禁止的命令</title>
+<style>
+:root{--bg:#0d1017;--card:#151a24;--line:#263044;--text:#e8ecf3;--sub:#93a0b5;--mute:#5f6b80;--bad:#ef5b5b;--ok:#34c38f;--warn:#f0a53a;--run:#5b9dff}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 system-ui,"Microsoft YaHei",sans-serif}
+.wrap{max-width:1040px;margin:0 auto;padding:14px 18px 60px}
+h2{font-size:13px;font-weight:400;color:var(--mute);margin:20px 0 8px}
+.note{color:var(--sub);font-size:13px;margin:0 0 8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px}
+.sw{display:flex;gap:10px;align-items:flex-start;cursor:pointer}
+.sw input{margin-top:5px}
+.sw small{display:block;color:var(--sub)}
+.rule{display:grid;grid-template-columns:22px minmax(120px,1fr) minmax(180px,2fr) 150px 92px auto;gap:8px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
+.rule:first-child{border-top:0}
+.rule.off input[type=text],.rule.off select{opacity:.5}
+.head{color:var(--mute);font-size:12px;padding:0 0 4px;border-top:0}
+input[type=text],select{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font:inherit;font-size:13px;outline:none;min-width:0}
+input[type=text]:focus,select:focus{border-color:var(--run)}
+input.pat{font-family:ui-monospace,Consolas,monospace}
+button{background:transparent;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 14px;font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}
+button:hover{border-color:var(--sub)}
+button.yes{background:var(--ok);border-color:var(--ok);color:#04130d;font-weight:600}
+button.del:hover{border-color:var(--bad);color:var(--bad)}
+button:disabled{opacity:.5;cursor:default}
+.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px;position:sticky;bottom:0;background:var(--bg);padding:10px 0}
+#msg{font-size:13px}
+#msg.ok{color:var(--ok)}#msg.bad{color:var(--bad)}
+.dirty{color:var(--warn);font-size:13px}
+.try{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.try input{flex:1;min-width:240px}
+#tryOut{font-size:13px;margin-top:6px;min-height:20px}
+.empty{color:var(--mute);font-size:13px;padding:10px 0}
+@media (max-width:760px){.rule{grid-template-columns:22px 1fr auto}.rule .pat,.rule select{grid-column:2 / 4}.head{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="note">这里列出的命令，专用 Agent 和自动化 Agent 提交了也不会执行——CEO Agent 批准不了，你自己在审批页也批准不了；要放行只能先在这里改规则。规则保存在 Agent 的容器之外，Agent 看不到也改不了。</p>
+
+  <h2>审核方式</h2>
+  <div class="card">
+    <label class="sw"><input type="checkbox" id="ceo"><span>Agent 的命令先由 CEO Agent 审核
+      <small>它同意的直接执行，它拒绝的不执行，它拿不准或有风险的（改配置、重启服务、删除数据等）转给你本人批准。关掉后，每条命令都直接等你批准。例行巡检和你点过"以后不再问"的命令不经过审核。</small></span></label>
+  </div>
+
+  <h2>禁止的命令</h2>
+  <div class="card">
+    <div class="rule head"><span></span><span>说明（给自己看的）</span><span>命令里包含这段内容就禁止</span><span>对谁生效</span><span>匹配方式</span><span></span></div>
+    <div id="rules"></div>
+    <div class="empty" id="none" hidden>还没有规则。</div>
+    <div style="margin-top:10px"><button id="add">＋ 加一条规则</button></div>
+  </div>
+  <p class="note">"包含文字"：命令里出现这段文字就算（不分大小写，多余的空格不算）。"正则"：给熟悉正则表达式的人用，更精确。前面的勾去掉可以暂时停用一条规则。</p>
+
+  <h2>试一试：这条命令会不会被拦下</h2>
+  <div class="card">
+    <div class="try"><input type="text" class="pat" id="tryCmd" placeholder="输入一条命令，比如 rm -rf /var/www"><select id="tryWho" style="width:150px"><option value="agent">专用 Agent</option><option value="auto">自动化 Agent</option></select></div>
+    <div id="tryOut"></div>
+  </div>
+
+  <div class="bar"><button class="yes" id="save">保存规则库</button><span class="dirty" id="dirty" hidden>有改动还没保存</span><span id="msg"></span></div>
+</div>
+<script>
+const API = '/ops/api';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+let rules = [], dirty = false;
+
+function setDirty(v) { dirty = v; $('dirty').hidden = !v; if (v) { $('msg').textContent = ''; } tryIt(); }
+function paint() {
+  $('none').hidden = rules.length > 0;
+  $('rules').innerHTML = rules.map((r, i) => '<div class="rule' + (r.enabled ? '' : ' off') + '" data-i="' + i + '">'
+    + '<input type="checkbox" data-f="enabled" title="启用这条规则"' + (r.enabled ? ' checked' : '') + '>'
+    + '<input type="text" data-f="note" maxlength="100" placeholder="比如：不许重启服务器" value="' + esc(r.note) + '">'
+    + '<input type="text" class="pat" data-f="pattern" maxlength="300" placeholder="比如：reboot" value="' + esc(r.pattern) + '">'
+    + '<select data-f="scope"><option value="all"' + (r.scope === 'all' ? ' selected' : '') + '>所有 Agent</option><option value="agent"' + (r.scope === 'agent' ? ' selected' : '') + '>只对专用 Agent</option><option value="auto"' + (r.scope === 'auto' ? ' selected' : '') + '>只对自动化 Agent</option></select>'
+    + '<select data-f="regex"><option value="0"' + (r.regex ? '' : ' selected') + '>包含文字</option><option value="1"' + (r.regex ? ' selected' : '') + '>正则</option></select>'
+    + '<button class="del" data-del="1">删除</button></div>').join('');
+}
+// 和服务器上的判断方式保持一致，用来在保存前预览。
+function hit(who, cmd) {
+  const flat = cmd.split(/\s+/).filter(Boolean).join(' ');
+  for (const r of rules) {
+    if (!r.enabled || !r.pattern.trim() || !(r.scope === 'all' || r.scope === who)) continue;
+    let ok = false;
+    try { ok = r.regex ? new RegExp(r.pattern, 'i').test(flat) : flat.toLowerCase().includes(r.pattern.split(/\s+/).filter(Boolean).join(' ').toLowerCase()); } catch (e) { ok = false; }
+    if (ok) return r;
+  }
+  return null;
+}
+function tryIt() {
+  const cmd = $('tryCmd').value.trim(), out = $('tryOut');
+  if (!cmd) { out.textContent = ''; return; }
+  const r = hit($('tryWho').value, cmd);
+  out.style.color = r ? 'var(--bad)' : 'var(--ok)';
+  out.textContent = r ? '会被拦下：撞上了规则"' + (r.note || r.pattern) + '"' : '不会被规则库拦下（之后还要经过 CEO Agent 或你的审批）';
+}
+$('rules').addEventListener('input', (e) => {
+  const row = e.target.closest('.rule'); if (!row) return;
+  const r = rules[Number(row.dataset.i)], f = e.target.dataset.f;
+  if (f === 'enabled') { r.enabled = e.target.checked; row.classList.toggle('off', !r.enabled); }
+  else if (f === 'regex') r.regex = e.target.value === '1';
+  else r[f] = e.target.value;
+  setDirty(true);
+});
+$('rules').addEventListener('click', (e) => {
+  if (!e.target.dataset.del) return;
+  rules.splice(Number(e.target.closest('.rule').dataset.i), 1);
+  paint(); setDirty(true);
+});
+$('add').onclick = () => { rules.push({ note: '', pattern: '', regex: false, scope: 'all', enabled: true }); paint(); setDirty(true); const p = $('rules').querySelectorAll('input[data-f=note]'); p[p.length - 1].focus(); };
+$('ceo').onchange = () => setDirty(true);
+$('tryCmd').oninput = $('tryWho').onchange = tryIt;
+$('save').onclick = async () => {
+  const msg = $('msg');
+  if (rules.some((r) => !r.pattern.trim())) { msg.className = 'bad'; msg.textContent = '有规则的内容是空的，填上或删掉'; return; }
+  $('save').disabled = true;
+  try {
+    const res = await fetch(API + '/rules/save', { method: 'POST', headers: { 'X-Ops-Action': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ ceoReview: $('ceo').checked, rules }) });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(j.error || '保存失败（' + res.status + '）');
+    rules = j.rules; paint(); setDirty(false);
+    msg.className = 'ok'; msg.textContent = '已保存，立即生效';
+  } catch (err) { msg.className = 'bad'; msg.textContent = err.message; }
+  $('save').disabled = false;
+};
+window.addEventListener('beforeunload', (e) => { if (dirty) e.preventDefault(); });
+(async () => {
+  try {
+    const res = await fetch(API + '/rules');
+    if (!res.ok) throw new Error('读取失败（' + res.status + '）');
+    const d = await res.json();
+    rules = d.rules; $('ceo').checked = d.ceoReview; paint();
+  } catch (err) { $('msg').className = 'bad'; $('msg').textContent = err.message; }
+})();
+</script>
+</body>
+</html>

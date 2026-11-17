@@ -1,0 +1,83 @@
+#!/usr/bin/env node
+// ext：申请给自己的工作环境加装一样东西 —— 工具（软件包）、技能、或 MCP 服务。
+// 申请先交给 CEO Agent 审批（它只看会不会影响现有系统），批准后由"开发者"安装。装好才返回，通常要等一两分钟。
+// 用法：
+//   ext request <tool|skill|mcp> <名字> --why "拿它做什么" [--source "来源线索"]
+//   ext list                                                      看最近的申请
+const http = require('http');
+
+const SOCKET = process.env.OPS_SOCKET || '/home/agent/.ops/ops.sock';
+const WHO = process.env.OPS_AGENT === 'auto' ? 'auto' : 'agent';
+const KIND = { tool: '工具', skill: '技能', mcp: 'MCP 服务' };
+const STATE = { waiting: '等 CEO Agent 审批', approved: '已批准，等开发者安装', installing: '开发者正在安装', installed: '已安装', denied: 'CEO Agent 没有批准', failed: '没有装上' };
+const HELP = `用法：
+  ext request <tool|skill|mcp> <名字> --why "拿它做什么" [--source "来源线索，如包名、GitHub 仓库、npm 包名"]
+  ext list
+三种类型：
+  tool   系统软件包、命令行工具、需要全局安装的库（你自己用 pip install --user、npm 能装的小库不用申请）
+  skill  技能：装进技能库，下一个任务起自动生效
+  mcp    MCP 服务：登记进 MCP 库，下一个任务起自动生效
+申请先由 CEO Agent 审批（只看会不会影响现有系统），批准后由开发者安装。被拒绝后不要换个名字重新申请，停下来向主人说明。
+例子：
+  ext request tool ffmpeg --why "把主人给的视频转成 GIF"
+  ext request mcp sequential-thinking --why "拆解复杂任务" --source "@modelcontextprotocol/server-sequential-thinking"`;
+
+function call(method, path, body) {
+  return new Promise((resolve, reject) => {
+    const data = body ? Buffer.from(JSON.stringify(body)) : null;
+    const req = http.request({ socketPath: SOCKET, path, method, headers: data ? { 'Content-Type': 'application/json', 'Content-Length': data.length } : {} }, (res) => {
+      let s = '';
+      res.on('data', (c) => { s += c; });
+      res.on('end', () => { try { resolve({ status: res.statusCode, body: JSON.parse(s || '{}') }); } catch (e) { reject(new Error('审批服务返回了无法识别的内容')); } });
+    });
+    req.on('error', () => reject(new Error('连不上审批服务（' + SOCKET + '）。')));
+    if (data) req.write(data);
+    req.end();
+  });
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const say = (s) => process.stderr.write('[ext] ' + s + '\n');
+
+(async () => {
+  const argv = process.argv.slice(2);
+  const cmd = argv[0];
+  if (!cmd || cmd === '-h' || cmd === '--help' || cmd === 'help') { console.log(HELP); process.exit(cmd ? 0 : 2); }
+  if (cmd === 'list') {
+    const r = await call('GET', '/ext/list');
+    const items = r.body.requests || [];
+    if (!items.length) { console.log('还没有申请过扩展。'); return; }
+    for (const x of items) console.log(`${KIND[x.kind] || x.kind}  ${x.name}  —  ${STATE[x.state] || x.state}${x.review ? '（CEO Agent：' + x.review.reason + '）' : ''}${x.result ? '\n    ' + x.result.replace(/\s+/g, ' ').slice(0, 200) : ''}`);
+    return;
+  }
+  if (cmd !== 'request') { say('不认识的用法。'); console.log(HELP); process.exit(2); }
+  const rest = argv.slice(1);
+  const opt = (flag) => { const i = rest.indexOf(flag); if (i < 0) return ''; const v = rest[i + 1] || ''; rest.splice(i, 2); return v; };
+  const why = opt('--why'), source = opt('--source');
+  const kind = rest[0], name = rest.slice(1).join(' ');
+  if (!KIND[kind] || !name) { say('要写成：ext request <tool|skill|mcp> <名字> --why "…"'); process.exit(2); }
+  if (!why.trim()) { say('必须用 --why 说明拿它做什么。'); process.exit(2); }
+
+  const created = await call('POST', '/ext/request', { kind, name, why, source, agent: WHO });
+  if (created.status !== 200) { say('没有提交成功：' + (created.body.error || created.status)); process.exit(2); }
+  const id = created.body.id;
+  say(`已提交申请：${KIND[kind]}「${name}」，等 CEO Agent 审批…`);
+  let last = 'waiting';
+  const started = Date.now();
+  for (;;) {
+    await sleep(2000);
+    const r = (await call('GET', '/ext/result?id=' + id)).body;
+    if (r.state !== last) {
+      last = r.state;
+      if (r.state === 'approved') say('CEO Agent 已批准' + (r.review ? '：' + r.review.reason : '') + '。等开发者安装…');
+      if (r.state === 'installing') say('开发者正在安装…');
+    }
+    if (r.state === 'denied') { say('CEO Agent 没有批准' + (r.review ? '：' + r.review.reason : '') + '。不要换个名字重新申请，改用现有的办法，或者停下来向主人说明。'); process.exit(3); }
+    if (r.state === 'failed') { say('没有装上：' + (r.result || '原因不明')); process.exit(4); }
+    if (r.state === 'installed') {
+      console.log('已安装：' + (r.result || name));
+      if (kind !== 'tool') say('技能和 MCP 服务从下一个任务（新开的会话）起生效；这一次任务里还用不到。');
+      return;
+    }
+    if (Date.now() - started > 20 * 60 * 1000) { say('等待超时。'); process.exit(4); }
+  }
+})().catch((e) => { say(e.message); process.exit(5); });

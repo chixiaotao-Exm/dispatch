@@ -1,0 +1,20 @@
+# Bot 发布站的门口：负责证书，把请求转给本机的只读文件服务。它自己不接触任何文件。
+{
+	admin off
+	auto_https disable_redirects
+}
+
+(pub) {
+	encode gzip
+	header -Server
+	reverse_proxy 127.0.0.1:7699
+}
+
+bot.example.com, bot.example.org {
+	import pub
+}
+
+# 同时提供不加密的入口：Cloudflare 设成"灵活"模式时是走这里回源的。
+http://bot.example.com, http://bot.example.org {
+	import pub
+}
