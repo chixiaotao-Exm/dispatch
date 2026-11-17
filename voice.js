@@ -3,6 +3,7 @@
 // 这里只负责"派活"：专用 Agent 要动服务器时照旧走审批，这里不替任何人批准任何事。
 const fs = require('fs');
 const crypto = require('crypto');
+const zlib = require('zlib');
 
 module.exports = function (ctx) {
   const { ceoCall, state, note, botsUrl, tasksUrl, sttUrl, file } = ctx;
@@ -15,14 +16,14 @@ module.exports = function (ctx) {
   // ---- 语音识别用哪一家 ----
   // 默认用本机的小模型。主人在页面上填了火山引擎（豆包语音）的密钥并打开开关后，就改用豆包的大模型来识别；
   // 豆包那边出任何问题（密钥不对、欠费、超时），这一句自动退回本机模型，电话不会断。密钥只存在这个文件里，不写进日志，也不发回页面。
-  let asr = { enabled: false, mode: 'new', apiKey: '', appId: '', accessToken: '', hotwords: [] };
+  let asr = { enabled: false, stream: true, mode: 'new', apiKey: '', appId: '', accessToken: '', hotwords: [] };
   try { asr = { ...asr, ...JSON.parse(fs.readFileSync(ctx.asrFile, 'utf8')) }; } catch (e) { /* 还没设置过 */ }
-  const asrState = { lastOk: 0, lastError: '', lastErrorAt: 0, wordsOk: true };
+  const asrState = { lastOk: 0, lastError: '', lastErrorAt: 0, wordsOk: true, streamRes: '', streamWords: true };
   const asrHasKey = () => (asr.mode === 'new' ? Boolean(asr.apiKey) : Boolean(asr.appId && asr.accessToken));
   const asrReady = () => Boolean(asr.enabled && ctx.asrFile && asrHasKey());
   const saveAsr = () => { fs.writeFileSync(ctx.asrFile + '.tmp', JSON.stringify(asr), { mode: 0o600 }); fs.renameSync(ctx.asrFile + '.tmp', ctx.asrFile); };
   const tail = (v) => (v ? '…' + String(v).slice(-4) : '');
-  const asrView = () => ({ enabled: asr.enabled, mode: asr.mode, hasKey: asrHasKey(), keyTail: asr.mode === 'new' ? tail(asr.apiKey) : tail(asr.accessToken), appId: asr.mode === 'old' ? asr.appId : '', hotwords: asr.hotwords, ...asrState });
+  const asrView = () => ({ enabled: asr.enabled, mode: asr.mode, hasKey: asrHasKey(), keyTail: asr.mode === 'new' ? tail(asr.apiKey) : tail(asr.accessToken), appId: asr.mode === 'old' ? asr.appId : '', hotwords: asr.hotwords, stream: asr.stream !== false, ...asrState });
   // 火山引擎"大模型录音文件极速版识别"：一次请求直接返回文字。自定义词随请求一起带过去。
   async function doubao(audio, format, useWords = true) {
     const request = { model_name: 'bigmodel', enable_itn: true, enable_punc: true };
@@ -45,6 +46,107 @@ module.exports = function (ctx) {
     }
     if (useWords && request.context) asrState.wordsOk = true;
     return String((j.result && j.result.text) || '').trim();
+  }
+  // ---- 流式识别（边说边出字）----
+  // 页面把正在说的话每 0.2 秒传来一小段，这里通过一条和豆包之间的长连接转过去，豆包一边听一边把认出来的字传回来，
+  // 并且由它来判断这句话说完了没有。一句话用一条连接，说完就断开；停顿的时候不传任何声音。
+  // 豆包的流式接口用的是它自己的二进制格式：4 个字节的头，接着是内容的长度，再接着是压缩过的内容。
+  const authHeaders = () => (asr.mode === 'new' ? { 'X-Api-Key': asr.apiKey } : { 'X-Api-App-Key': asr.appId, 'X-Api-Access-Key': asr.accessToken });
+  const streams = new Map();
+  const frame = (type, flags, json, payload) => {
+    const z = zlib.gzipSync(payload), n = Buffer.alloc(4);
+    n.writeUInt32BE(z.length);
+    return Buffer.concat([Buffer.from([0x11, (type << 4) | flags, ((json ? 1 : 0) << 4) | 1, 0]), n, z]);
+  };
+  function parseFrame(buf) {
+    const type = buf[1] >> 4, flags = buf[1] & 15, gz = (buf[2] & 15) === 1, head = (buf[0] & 15) * 4;
+    const body = (o) => { const n = buf.readUInt32BE(o), p = buf.subarray(o + 4, o + 4 + n); return gz ? zlib.gunzipSync(p) : p; };
+    if (type === 15) {   // 豆包报错：错误码 + 说明
+      let msg = '';
+      try { msg = body(head + 4).toString('utf8'); } catch (e) { msg = buf.subarray(head + 8).toString('utf8'); }
+      return { error: buf.readUInt32BE(head) + '：' + msg.replace(/\s+/g, ' ').slice(0, 160), code: buf.readUInt32BE(head) };
+    }
+    if (type !== 9) return {};
+    // 结果：头后面可能先跟着 4 个字节的序号。按标志位判断；万一对不上，再按另一种摆法试一次。
+    for (const o of flags & 1 ? [head + 4, head] : [head, head + 4]) {
+      try { return { final: Boolean(flags & 2), json: JSON.parse(body(o).toString('utf8') || '{}') }; } catch (e) { /* 换一种摆法 */ }
+    }
+    return {};
+  }
+  function openStream(sid, format) {
+    const s = { ws: null, open: false, pending: [], text: '', definite: false, final: false, error: '', at: Date.now(), waiters: [] };
+    streams.set(sid, s);
+    const wake = () => { for (const w of s.waiters.splice(0)) w(); };
+    const fail = (msg, code) => {
+      if (s.error || s.final || s.done) return;   // 已经收尾的那条连接再断开，不算出错
+      s.error = msg;
+      if (code === 45000001 && asrState.streamWords && asr.hotwords.length) asrState.streamWords = false;   // 多半是不收自定义词：下一句不带了
+      asrState.lastError = '流式识别：' + msg; asrState.lastErrorAt = Date.now();
+      console.log('[语音识别] 流式这一句没成：' + msg);
+      try { s.ws.close(); } catch (e) { /* 已经断了 */ }
+      wake();
+    };
+    s.fail = fail;
+    // 新版模型（2.0）和旧版模型用的是两个不同的资源编号：先试上次连上的那个，握手被拒就换另一个。
+    const ids = ['volc.seedasr.sauc.duration', 'volc.bigasr.sauc.duration'];
+    const order = asrState.streamRes === ids[1] ? [ids[1], ids[0]] : ids;
+    const connect = (i) => {
+      let opened = false;
+      const ws = new WebSocket('wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async', { headers: { ...authHeaders(), 'X-Api-Resource-Id': order[i], 'X-Api-Connect-Id': crypto.randomUUID() } });
+      ws.binaryType = 'arraybuffer';
+      s.ws = ws;
+      ws.onopen = () => {
+        if (s.ws !== ws) return;
+        opened = true; s.open = true; asrState.streamRes = order[i];
+        // 自定义词：流式接口只收很少的词，挑排在前面的，总长度控制在 60 个字以内。
+        const words = [];
+        let len = 0;
+        for (const w of asr.hotwords) { if (len + w.length > 60) break; words.push(w); len += w.length; }
+        const request = { model_name: 'bigmodel', enable_itn: true, enable_punc: true, show_utterances: true, result_type: 'full', enable_nonstream: true, end_window_size: 1000 };
+        if (words.length && asrState.streamWords) request.corpus = { context: JSON.stringify({ hotwords: words.map((word) => ({ word })) }) };
+        ws.send(frame(1, 0, true, Buffer.from(JSON.stringify({ user: { uid: 'dispatch' }, audio: { format: format || 'pcm', codec: 'raw', rate: 16000, bits: 16, channel: 1 }, request }))));
+        for (const b of s.pending.splice(0)) ws.send(b);
+      };
+      ws.onmessage = (e) => {
+        if (s.ws !== ws) return;
+        let r;
+        try { r = parseFrame(Buffer.from(e.data)); } catch (err) { return; }
+        if (r.error) return fail(r.error, r.code);
+        if (!r.json) return;
+        const out = r.json.result || {};
+        if (typeof out.text === 'string') s.text = out.text.trim();
+        if ((out.utterances || []).some((u) => u && u.definite)) s.definite = true;
+        if (r.final) s.final = true;
+        wake();
+      };
+      ws.onerror = () => {
+        if (s.ws !== ws) return;
+        if (!opened && i + 1 < order.length) return connect(i + 1);
+        if (!opened) asrState.streamDownUntil = Date.now() + 10 * 60000;   // 握手都过不去：十分钟内不再试流式，直接用整句识别，免得每句话都白等
+        fail(opened ? '和豆包的连接断了' : '连不上豆包的流式识别：密钥不对，或者没有开通"流式语音识别模型"');
+      };
+      ws.onclose = () => { if (s.ws !== ws) return; if (opened && !s.error) s.final = true; wake(); };
+    };
+    connect(0);
+    return s;
+  }
+  const endStream = (sid) => { const s = streams.get(sid); if (!s) return; s.done = true; streams.delete(sid); try { s.ws.close(); } catch (e) { /* 已经断了 */ } };
+  setInterval(() => { for (const [sid, s] of streams) if (Date.now() - s.at > 20000) endStream(sid); }, 10000).unref();
+  // 往一条流里送一段声音；last 表示这句话说完了，等豆包给出最后的结果（最多等几秒）。
+  async function pushStream(sid, pcm, last, format) {
+    const s = streams.get(sid) || openStream(sid, format);
+    s.at = Date.now();
+    if (!s.error && !s.final && (pcm.length || last)) {
+      const b = frame(2, last ? 2 : 0, false, pcm);
+      if (s.open) { try { s.ws.send(b); } catch (e) { s.fail('和豆包的连接断了'); } } else s.pending.push(b);
+    }
+    if (last && !s.error && !s.final) await new Promise((r) => { s.waiters.push(r); setTimeout(r, 5000); });
+    const out = { text: s.text, definite: s.definite, final: s.final, error: s.error };
+    if (last || s.error || s.definite || s.final) {
+      if (!s.error) { asrState.lastOk = Date.now(); asrState.lastError = ''; }
+      endStream(sid);
+    }
+    return out;
   }
   const clip = (s, n) => { s = String(s || ''); return s.length > n ? s.slice(0, n) + '…（后面还有，去对应的页面看全文）' : s; };
 
@@ -193,6 +295,15 @@ hangup：只有正在通话时才有用。主人表示这通电话可以结束�
       if (req.method === 'GET' && route === '/asr') return json(res, 200, asrView());
       if (req.method !== 'POST') return json(res, 405, { error: 'method not allowed' });
       if (req.headers['x-voice-action'] !== '1') return json(res, 403, { error: '请求来源不对' });
+      // 流式识别：页面每 0.2 秒送来一小段正在说的话，回给它到目前为止认出来的字。
+      if (route === '/stream/push') {
+        if (!asrReady() || asr.stream === false) return json(res, 409, { error: '没有启用流式识别' });
+        if (Date.now() < (asrState.streamDownUntil || 0)) return json(res, 409, { error: '流式识别刚才连不上，先用整句识别' });
+        const q = new URL(req.url, 'http://x').searchParams, sid = String(q.get('sid') || '').replace(/[^\w-]/g, '').slice(0, 40);
+        if (!sid) return json(res, 400, { error: '缺少编号' });
+        if (!streams.has(sid) && streams.size >= 6) return json(res, 429, { error: '同时在识别的太多了' });
+        return json(res, 200, await pushStream(sid, await readRaw(req, 2 * 1024 * 1024), q.get('last') === '1'));
+      }
       if (route === '/stt') {
         const audio = await readRaw(req, 12 * 1024 * 1024);
         if (audio.length < 800) return json(res, 400, { error: '录音是空的' });
@@ -233,6 +344,8 @@ hangup：只有正在通话时才有用。主人表示这通电话可以结束�
         if (str(body.accessToken)) asr.accessToken = str(body.accessToken);
         asr.hotwords = [...new Set(String(body.hotwords || '').split(/[\n,，、]+/).map((w) => w.trim().slice(0, 30)).filter(Boolean))].slice(0, 300);
         asr.enabled = Boolean(body.enabled) && asrHasKey();
+        asr.stream = body.stream !== false;
+        asrState.streamWords = true; asrState.streamDownUntil = 0;
         saveAsr();
         asrState.lastError = '';
         console.log(`[语音识别] 设置已保存：${asr.enabled ? '用豆包' : '用本机模型'}，自定义词 ${asr.hotwords.length} 个`);
@@ -245,9 +358,19 @@ hangup：只有正在通话时才有用。主人表示这通电话可以结束�
           const said = '你好，这是调度台的语音识别测试。';
           const t = await fetch(sttUrl + 'tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: said }), signal: AbortSignal.timeout(30000) });
           if (!t.ok) return json(res, 502, { error: '本机合成不了测试用的语音' });
-          const text = await doubao(Buffer.from(await t.arrayBuffer()), /mpeg/.test(t.headers.get('content-type') || '') ? 'mp3' : 'wav');
+          const audioBuf = Buffer.from(await t.arrayBuffer()), audioFmt = /mpeg/.test(t.headers.get('content-type') || '') ? 'mp3' : 'wav';
+          let text = '';
+          try { text = await doubao(audioBuf, audioFmt); } catch (e) { if (asr.stream === false) throw e; text = '（整句识别没通过：' + String(e.message || e).slice(0, 80) + '）'; }
           asrState.lastOk = Date.now(); asrState.lastError = '';
-          return json(res, 200, { ok: true, said, text, wordsOk: asrState.wordsOk });
+          let stream = null;
+          if (asr.stream !== false) {
+            asrState.streamDownUntil = 0;
+            const sid = 'test-' + crypto.randomUUID(), mp3 = Buffer.from(audioBuf);
+            for (let o = 0; o < mp3.length; o += 8000) await pushStream(sid, mp3.subarray(o, o + 8000), false, audioFmt);
+            const r = await pushStream(sid, Buffer.alloc(0), true, audioFmt);
+            stream = r.error ? { error: r.error } : { text: r.text };
+          }
+          return json(res, 200, { ok: true, said, text, wordsOk: asrState.wordsOk, stream });
         } catch (e) {
           asrState.lastError = String(e.message || e).slice(0, 200); asrState.lastErrorAt = Date.now();
           return json(res, 502, { error: asrState.lastError });

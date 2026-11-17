@@ -1779,7 +1779,7 @@ function paintVoice(d) {
   voiceLook(items);
   callFeed(items);
   $('voiceBox').hidden = !voiceShow;
-  if (call.on) {
+  if (call.on && !call.st) {
     const last = [...items].reverse().find((m) => m.id > call.startId && (m.role === 'me' || m.role === 'ceo' || (m.role === 'result' && m.speak)));
     $('callCap').textContent = !last ? '说完停一下，我就会接话。说“挂断”可以结束通话。' : last.role === 'me' ? '你：' + last.text : last.role === 'result' ? last.speak : last.text;
     $('callCap').className = 'call-cap' + (last && last.role === 'me' ? ' me' : '');
@@ -1871,6 +1871,57 @@ async function callSpeak(item) {
     voiceTip('这一句没能念出来，文字在通话记录里', true); done();
   }
 }
+// 认出一句话之后：太短的当作杂音；是"挂断"就挂；否则交给 CEO Agent。
+async function callHeard(text) {
+  if (!call.on) return;
+  text = String(text || '').trim();
+  if (text.replace(/[\s。，,.!！?？~、]/g, '').length < 2) return callListen();
+  if (VOICE_BYE.test(text)) return callStop();
+  voiceState('think');
+  if (!(await voiceSend(text))) callListen();
+}
+// ---- 流式识别：边说边把声音传上去，字幕实时出，由豆包判断说完了没有 ----
+function streamBegin() {
+  streamDrop();
+  if (!call.stream) return;
+  const st = { sid: Date.now().toString(36) + Math.random().toString(36).slice(2, 10), src: call.rec, sent: 0, busy: false, wantLast: false, frames: null };
+  st.timer = setInterval(() => streamPump(false), 200);
+  call.st = st;
+}
+function streamDrop() { if (call.st) { clearInterval(call.st.timer); call.st = null; } }
+async function streamPump(last) {
+  const st = call.st;
+  if (!st) return;
+  if (st.busy) { if (last) st.wantLast = true; return; }
+  const fresh = st.src.slice(st.sent);
+  if (!fresh.length && !last) return;
+  st.sent = st.src.length; st.busy = true;
+  if (last) clearInterval(st.timer);
+  const n = fresh.reduce((a, f) => a + f.length, 0), pcm = new Int16Array(n);
+  let o = 0;
+  for (const f of fresh) for (let i = 0; i < f.length; i++) pcm[o++] = Math.max(-1, Math.min(1, f[i])) * 32767;
+  let r;
+  try { r = await voiceApi('stream/push?sid=' + st.sid + (last ? '&last=1' : ''), { body: pcm.buffer, type: 'application/octet-stream' }); }
+  catch (e) { r = { error: e.message }; }
+  st.busy = false;
+  if (call.st !== st || !call.on) return;
+  if (r.error) {
+    // 流式这一句没成：改用老办法。话还没说完就接着在本地录，说完整句送去识别；已经说完了就把整句送去。
+    streamDrop();
+    call.stream = false;   // 这通电话里不再试流式
+    if (st.frames) callUtterance(st.frames);
+    return;
+  }
+  if (r.text) { $('callCap').textContent = '你：' + r.text; $('callCap').className = 'call-cap me'; }
+  if (r.definite || r.final || last) {
+    // 豆包说这句话完了（或者本地等够了、让它收尾）：不再听，把这句话交出去。
+    streamDrop();
+    call.rec = []; call.speaking = false; call.loudMs = 0;
+    if (!r.text && st.frames) return callUtterance(st.frames);   // 流式什么都没认出来：整句再认一次
+    return callHeard(r.text);
+  }
+  if (st.wantLast) { st.wantLast = false; streamPump(true); }
+}
 function wavBlob(frames) {
   const n = frames.reduce((s, f) => s + f.length, 0), buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
   const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
@@ -1899,6 +1950,7 @@ function callBarge(now) {
   call.audio = null; call.queue = [];
   voiceState('listen', '听到你说话了，请继续…');
   Object.assign(call, { speaking: true, rec: call.pre, pre: [], startAt: now - 300, lastLoud: now, loudMs: 0, muteUntil: 0 });
+  streamBegin();
 }
 // 每一小段声音进来：判断你是不是在说话；说完停顿约一秒就当作一句话结束。
 function callFrame(input, rate) {
@@ -1927,15 +1979,17 @@ function callFrame(input, rate) {
     call.pre.push(out);
     if (call.pre.length > 14) call.pre.shift();   // 留半秒左右的"前奏"，免得第一个字被切掉
     if (rms > thr) call.loudMs += ms; else { call.loudMs = 0; call.noise = call.noise * 0.95 + rms * 0.05; }
-    if (call.loudMs >= 110) { call.speaking = true; call.rec = call.pre; call.pre = []; call.startAt = now; call.lastLoud = now; $('voiceStateText').textContent = '正在听…说完停一下就行'; }
+    if (call.loudMs >= 110) { call.speaking = true; call.rec = call.pre; call.pre = []; call.startAt = now; call.lastLoud = now; $('voiceStateText').textContent = '正在听…说完停一下就行'; streamBegin(); }
     return;
   }
   call.rec.push(out);
   if (rms > thr) call.lastLoud = now;
-  if (now - call.lastLoud > 1000 || now - call.startAt > 60000) {
+  // 用流式识别时，一句话说完没有主要由豆包判断；这里的停顿时间放长一些，只当作兜底。
+  if (now - call.lastLoud > (call.st ? 1800 : 1000) || now - call.startAt > 60000) {
     const frames = call.rec, spoke = call.lastLoud - call.startAt;
     call.rec = []; call.speaking = false; call.loudMs = 0;
-    if (spoke < 200) { $('voiceStateText').textContent = '正在听，直接说话就行'; return callPump(); }
+    if (spoke < 200) { streamDrop(); $('voiceStateText').textContent = '正在听，直接说话就行'; return callPump(); }
+    if (call.st) { call.st.frames = frames; voiceState('think', '听到了，正在转成文字…'); return streamPump(true); }
     callUtterance(frames);
   }
 }
@@ -1951,6 +2005,7 @@ async function callStart() {
   ctx.createMediaStreamSource(stream).connect(node); node.connect(quiet); quiet.connect(ctx.destination);
   Object.assign(call, { on: true, ctx, stream, node, queue: [], spoken: new Set(), noise: 0.006 });
   try { for (const m of (await voiceApi('log')).items || []) call.spoken.add(m.id); } catch (e) { /* 取不到就算了 */ }
+  try { const a = await voiceApi('asr'); call.stream = Boolean(a.enabled && a.stream); } catch (e) { call.stream = false; }
   call.startId = Math.max(0, ...call.spoken); call.t0 = Date.now(); clearInterval(call.clock); call.clock = setInterval(callClock, 1000); callClock();
   $('voiceOpen').classList.add('on'); $('voiceOpenText').textContent = '挂断'; voiceTip('');
   // 电话接通后由 CEO Agent 先开口：让它问好并说一句现在的情况，它说完再轮到你。请不到这句开场白时，就直接开始听。
@@ -1966,7 +2021,7 @@ function callStop() {
   try { call.node.onaudioprocess = null; for (const t of call.stream.getTracks()) t.stop(); call.ctx.close(); } catch (e) { /* 已经关了 */ }
   Object.assign(call, { state: 'idle', ctx: null, stream: null, node: null, audio: null, queue: [], speaking: false });
   $('voiceOpen').classList.remove('on'); $('voiceOpenText').textContent = '开始通话'; $('voiceState').hidden = true;
-  clearInterval(call.clock); callPaint('idle');
+  clearInterval(call.clock); streamDrop(); callPaint('idle');
   voiceTip('已挂断。已经交出去的事会继续做，结果在"通话记录"里。'); voicePolling();
 }
 $('voiceOpen').addEventListener('click', (e) => { e.stopPropagation(); if (call.on) callStop(); else callStart(); });
@@ -1990,6 +2045,7 @@ async function asrDialog(note, bad) {
         <label>Access Token<input type="password" name="accessToken" autocomplete="new-password" placeholder="${d.mode === 'old' && d.hasKey ? '已经填过（' + esc(d.keyTail) + '），不改就留空' : '粘贴到这里'}"></label></div>
       <label>自定义词（每行一个：你常说的名字、网站名、英文词，识别时会优先往这些词上靠）<textarea name="hotwords" rows="6">${esc(words.join(String.fromCharCode(10)))}</textarea></label>
       <label class="asr-radio"><input type="checkbox" name="enabled" ${d.enabled || !d.hasKey ? 'checked' : ''}>用豆包语音识别（不勾就用本机的小模型）</label>
+      <label class="asr-radio"><input type="checkbox" name="stream" ${d.stream ? 'checked' : ''}>边说边出字（流式识别，需要在火山引擎另外开通“豆包流式语音识别模型2.0”）</label>
       <p class="asr-msg ${bad ? 'dlg-bad' : ''}" id="asrMsg" role="status">${esc(note || '')}</p>
       <div class="dlg-btns" style="margin-top:10px"><button type="button" class="dlg-btn" id="asrClose">关闭</button><button type="button" class="dlg-btn" id="asrTest">保存并测试</button><button type="submit" class="dlg-btn primary">保存</button></div>
     </form>`,
@@ -1997,7 +2053,7 @@ async function asrDialog(note, bad) {
   const f = $('asrForm');
   const sync = () => { for (const el of f.querySelectorAll('[data-mode]')) el.hidden = el.dataset.mode !== f.mode.value; };
   sync(); f.addEventListener('change', sync);
-  const save = async () => voiceApi('asr/save', { body: JSON.stringify({ mode: f.mode.value, apiKey: f.apiKey.value, appId: f.appId.value, accessToken: f.accessToken.value, hotwords: f.hotwords.value, enabled: f.enabled.checked }) });
+  const save = async () => voiceApi('asr/save', { body: JSON.stringify({ mode: f.mode.value, apiKey: f.apiKey.value, appId: f.appId.value, accessToken: f.accessToken.value, hotwords: f.hotwords.value, enabled: f.enabled.checked, stream: f.stream.checked }) });
   const msg = (t, isBad) => { $('asrMsg').textContent = t; $('asrMsg').className = 'asr-msg' + (isBad ? ' dlg-bad' : ''); };
   $('asrClose').addEventListener('click', () => dlgClose(false));
   f.addEventListener('submit', async (e) => { e.preventDefault(); try { const r = await save(); asrDialog(r.enabled ? '已保存，之后的通话用豆包语音识别。' : r.hasKey ? '已保存，目前用本机的小模型。' : '已保存。还没有填密钥，所以用的还是本机的小模型。'); } catch (err) { msg(err.message, true); } });
@@ -2006,7 +2062,8 @@ async function asrDialog(note, bad) {
       msg('正在保存并测试，大约几秒…');
       await save();
       const r = await voiceApi('asr/test', { body: '{}' });
-      asrDialog(`测试通过。让它听的是“${r.said}”，它认出来的是“${r.text}”。` + (r.wordsOk ? '' : '（自定义词这个接口没有接受，目前没有生效）'));
+      const sm = !r.stream ? '' : r.stream.error ? ` 流式识别没通过：${r.stream.error}（通话时会自动改用整句识别）` : ` 流式识别也通过了，认出来的是“${r.stream.text}”。`;
+      asrDialog(`让它听的是“${r.said}”，整句识别认出来的是“${r.text}”。` + sm + (r.wordsOk ? '' : '（自定义词这个接口没有接受，目前没有生效）'), Boolean(r.stream && r.stream.error));
     } catch (err) { asrDialog('测试没通过：' + err.message, true); }
   });
 }
