@@ -581,6 +581,35 @@ button:hover,.btn:hover{box-shadow:0 0 12px -2px var(--accent)}
 .map-compass b{position:absolute;left:0;right:0;top:-18px;text-align:center;font:500 12px var(--hud);color:#8fb2d4}
 .map-scale{position:absolute;left:88px;bottom:22px;z-index:1;width:110px;height:7px;border:1px solid #4d79a6;border-top:0;pointer-events:none}
 .map-scale span{position:absolute;left:0;right:0;bottom:8px;text-align:center;font:12px var(--hud);color:#4d79a6;letter-spacing:.06em}
+
+/* ---- 地图上的房子：每个 Agent 是一栋建筑（一整块街区），路线通到它门口 ---- */
+.mapmode #mapBox{container-type:inline-size}
+.place{--bw:min(270px,12.4cqw)}
+.place>.card{left:calc(var(--bw) / -2);width:var(--bw);min-height:132px;padding:14px 16px 26px;border-radius:10px;animation:none;
+  border:1.5px solid color-mix(in srgb,var(--glow) 60%,#0a1a2e);
+  /* 屋顶：淡淡的格子像建筑的平面图，整体带一点这个 Agent 的颜色 */
+  background:
+    linear-gradient(color-mix(in srgb,var(--glow) 9%,transparent) 1px,transparent 1px) 0 0/100% 22px,
+    linear-gradient(90deg,color-mix(in srgb,var(--glow) 9%,transparent) 1px,transparent 1px) 0 0/22px 100%,
+    linear-gradient(160deg,color-mix(in srgb,var(--glow) 16%,#0b1c33),color-mix(in srgb,var(--glow) 7%,#081424));
+  /* 下面那一道是楼的侧面，让它看起来有高度 */
+  box-shadow:0 7px 0 -1px color-mix(in srgb,var(--glow) 26%,#050d1a),0 8px 0 0 color-mix(in srgb,var(--glow) 45%,#050d1a),0 0 26px -8px var(--glow),0 18px 30px rgba(0,0,0,.55)}
+.place.has-detail>.card:hover,.place.open>.card{box-shadow:0 7px 0 -1px color-mix(in srgb,var(--glow) 34%,#050d1a),0 8px 0 0 var(--glow),0 0 30px -2px var(--glow),0 18px 30px rgba(0,0,0,.55);border-color:var(--glow)}
+.place>.card.hit{box-shadow:0 7px 0 -1px color-mix(in srgb,var(--pc) 40%,#050d1a),0 8px 0 0 var(--pc),0 0 0 1px var(--pc),0 0 30px 2px var(--pc)}
+.place>.card .head{color:var(--glow);font-size:13px}
+.place>.card .big{font-size:30px}
+/* 门口：路线到这里为止 */
+.place::after{display:none}
+.place>.card{bottom:12px}
+.place.below>.card{bottom:auto;top:12px}
+/* 能点开的房子，右下角有一行小字提示 */
+.place.has-detail>.card::after{content:"点开看明细 ›";position:absolute;right:12px;bottom:7px;font-size:11px;letter-spacing:.08em;color:color-mix(in srgb,var(--glow) 80%,#fff);opacity:.75}
+.place.has-detail>.card:hover::after,.place.open>.card::after{opacity:1}
+/* 你的房子和两个线路 Agent 的房子矮一些 */
+.place.boss>.card{left:-160px;width:320px;min-height:0;padding:14px 16px 16px}
+.place.line>.card{left:calc(var(--bw) / -2);width:var(--bw);min-height:96px;padding:14px 16px 16px}
+/* 线路卡片原来往上、往两边伸出去的那几根线，在地图里不要 */
+.place>.card.line::after,.place>.card.line .up-v,.place>.card.line .up-h{display:none!important}
 </style>
 </head>
 <body>
