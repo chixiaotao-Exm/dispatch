@@ -270,7 +270,14 @@ module.exports = function (ctx) {
         if (s.open) { try { s.ws.send(b); } catch (e) { s.fail('和豆包的连接断了'); } } else s.pending.push(b);
       }
     }
-    if (last && !s.error && !s.final) await new Promise((r) => { s.waiters.push(r); setTimeout(r, 5000); });
+    if (last && !s.error && !s.final) {
+      if (s.qw) {
+        // Qwen 收尾时会先陆续送来还没定稿的字，最后才是定稿。要等到它说"这一段结束了"为止（最多 4 秒），
+        // 不能一有动静就当成结果——那样短话（比如只说一个词）只会拿到开头的一个字。
+        const until = Date.now() + 4000;
+        while (!s.error && !s.final && Date.now() < until) await new Promise((r) => { s.waiters.push(r); setTimeout(r, 250); });
+      } else await new Promise((r) => { s.waiters.push(r); setTimeout(r, 5000); });
+    }
     const out = { text: s.text, definite: s.definite, final: s.final, error: s.error };
     // 豆包认为"一个句子完了"（definite）不等于主人把话说完了：长话里句子之间本来就有停顿。所以这里不结束，交给页面按停顿时间决定。
     if (last || s.error || s.final) {
