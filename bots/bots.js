@@ -16,7 +16,7 @@ const CLAUDE_URL = process.env.BOT_CLAUDE_URL || 'http://127.0.0.1:7684/tasks/ap
 const LLM = { base: (process.env.LLM_BASE_URL || '').replace(/\/+$/, ''), key: process.env.LLM_API_KEY || '' };
 const CLAUDE_MODELS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'];
 const TZ = process.env.BOTS_TZ || 'Asia/Shanghai';
-const MAX_STEPS = Math.max(20, Number(process.env.BOTS_MAX_STEPS) || 120);   // 一件事最多连续做多少步。原来是 40，认真挑东西（多看几个候选、逐个截图核实）不够用
+const MAX_STEPS = Math.max(20, Number(process.env.BOTS_MAX_STEPS) || 250);   // 一件事最多连续做多少步。原来是 40，认真挑东西（多看几个候选、逐个截图核实）不够用
 const BASE = '/bots';
 
 fs.mkdirSync(path.join(DATA, 'chats'), { recursive: true });
