@@ -1692,7 +1692,7 @@ const MODEL_NAMES = { 'deepseek-v4.1-flash-abliterated': 'deepseek-v4.1-flash' }
 const showModel = (id) => MODEL_NAMES[id] || id || '';
 // ---- 和 CEO Agent 通话：像打电话一样。点一次开始，之后一直开着：你说完停一下它就自动接话，并用语音回答。----
 let voiceKey = '', voiceBusy = false, voicePoll = 0, voiceShow = false;
-const call = { on: false, state: 'idle', ctx: null, stream: null, node: null, audio: null, spoken: new Set(), queue: [], pre: [], rec: [], speaking: false, loudMs: 0, lastLoud: 0, startAt: 0, noise: 0.006, muteUntil: 0, sending: false };
+const call = { speakId: 0, on: false, state: 'idle', ctx: null, stream: null, node: null, audio: null, spoken: new Set(), queue: [], pre: [], rec: [], speaking: false, loudMs: 0, lastLoud: 0, startAt: 0, noise: 0.006, muteUntil: 0, sending: false };
 const VOICE_BYE = /^(挂断|挂了|挂电话|挂掉|再见|拜拜|先这样|就这样)[吧了啊呀哈。.!！~， ]*$/;
 async function voiceApi(route, opt) {
   const res = await fetch('/api/voice/' + route, opt ? { method: 'POST', headers: { 'X-Voice-Action': '1', 'Content-Type': opt.type || 'application/json' }, body: opt.body } : { cache: 'no-store' });
@@ -1787,16 +1787,19 @@ function callPump() {
 function callListen() { call.pre = []; call.rec = []; call.speaking = false; call.loudMs = 0; call.muteUntil = Date.now() + 350; voiceState('listen'); }
 async function callSpeak(item) {
   const hang = Boolean(item && item.hang), text = hang ? item.text : item;
+  const id = ++call.speakId;
+  call.loudMs = 0; call.pre = [];
   voiceState('speak');
-  const done = () => { call.audio = null; if (!call.on) return; if (hang) return callStop(); callListen(); callPump(); };
+  const done = () => { if (call.speakId !== id) return; call.audio = null; if (!call.on) return; if (hang) return callStop(); callListen(); callPump(); };
   try {
     const blob = await voiceApi('tts', { body: JSON.stringify({ text }), raw: true });
-    if (!call.on) return;
+    if (!call.on || call.speakId !== id) return;   // 还没开始播就被打断了
     const a = new Audio(URL.createObjectURL(blob));
     call.audio = a;
     a.onended = a.onerror = () => { URL.revokeObjectURL(a.src); done(); };
     await a.play();
   } catch (e) {
+    if (call.speakId !== id) return;
     // 服务器那边念不出来时，退回用浏览器自带的朗读。
     if (call.on && window.speechSynthesis) {
       const u = new SpeechSynthesisUtterance(text); u.lang = 'zh-CN'; u.onend = u.onerror = done;
@@ -1826,6 +1829,14 @@ async function callUtterance(frames) {
     if (!(await voiceSend(text))) callListen();
   } catch (e) { if (call.on) { voiceTip('没有听清：' + e.message, true); callListen(); } }
 }
+// 打断：CEO Agent 正在说话时你开口了。它立刻停下，没说完的话不再说，改成听你说——你开口的那一小段也算在这句话里。
+function callBarge(now) {
+  call.speakId++;
+  try { if (call.audio) call.audio.pause(); if (window.speechSynthesis) speechSynthesis.cancel(); } catch (e) { /* 没在播 */ }
+  call.audio = null; call.queue = [];
+  voiceState('listen', '听到你说话了，请继续…');
+  Object.assign(call, { speaking: true, rec: call.pre, pre: [], startAt: now - 300, lastLoud: now, loudMs: 0, muteUntil: 0 });
+}
 // 每一小段声音进来：判断你是不是在说话；说完停顿约一秒就当作一句话结束。
 function callFrame(input, rate) {
   if (!call.on) return;
@@ -1833,9 +1844,19 @@ function callFrame(input, rate) {
   let sum = 0;
   for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
   const rms = Math.sqrt(sum / input.length);
-  if (call.state !== 'listen' || now < call.muteUntil) return;
+  if (call.state !== 'listen' && call.state !== 'speak') return;
   const step = rate / 16000, out = new Float32Array(Math.floor(input.length / step));
   for (let i = 0; i < out.length; i++) { const a = Math.floor(i * step), b = Math.max(a + 1, Math.floor((i + 1) * step)); let s = 0; for (let k = a; k < b; k++) s += input[k]; out[i] = s / (b - a); }
+  if (call.state === 'speak') {
+    // 它在说话：一边留着最近半秒多的声音，一边看你有没有开口。门槛比平时高得多，而且要持续三分之一秒，
+    // 免得把喇叭里它自己的声音、咳嗽、敲键盘当成你在说话。
+    call.pre.push(out);
+    if (call.pre.length > 18) call.pre.shift();
+    if (rms > Math.max(0.05, call.noise * 7)) call.loudMs += ms; else call.loudMs = Math.max(0, call.loudMs - ms);
+    if (call.loudMs >= 320) callBarge(now);
+    return;
+  }
+  if (now < call.muteUntil) return;
   const thr = Math.max(0.015, call.noise * 3.2);
   $('voiceLv').style.transform = 'scale(' + (1 + Math.min(1.6, rms * 14)).toFixed(2) + ')';
   $('callWave').style.setProperty('--lv', Math.min(1, rms * 9).toFixed(2));
