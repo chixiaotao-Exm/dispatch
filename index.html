@@ -1017,6 +1017,13 @@ function soundSpy(w, name) {
       const told = new WeakSet();
       w.setInterval(() => { try { for (const el of w.document.querySelectorAll('audio,video')) if (!el.paused && !el.muted && el.currentTime > 0 && !told.has(el)) { told.add(el); tell('发现正在播放的 <' + el.tagName.toLowerCase() + (el.id ? ' id=' + el.id : '') + '>', String(el.currentSrc || el.src || '').slice(0, 150)); } } catch (e) { /* 看不到就算了 */ } }, 150);
     }
+    // ④ 读写剪贴板（只记动作和字数，不记内容）
+    const cb = w.navigator && w.navigator.clipboard;
+    if (cb && !cb.__spy) {
+      cb.__spy = true;
+      for (const fn of ['writeText', 'write', 'readText', 'read']) { const orig = cb[fn] && cb[fn].bind(cb); if (orig) cb[fn] = (...a) => { tell('剪贴板 ' + fn, typeof a[0] === 'string' ? a[0].length + ' 个字' : ''); return orig(...a); }; }
+    }
+    if (!w.document.__spyCopy) { w.document.__spyCopy = true; for (const ev of ['copy', 'cut', 'paste']) w.document.addEventListener(ev, () => tell('剪贴板事件 ' + ev, ''), true); const ex = w.document.execCommand; w.document.execCommand = function (c) { if (/copy|cut|paste/i.test(String(c))) tell('剪贴板命令 ' + c, ''); return ex.apply(this, arguments); }; }
     // 这个面板里再嵌着的面板也装上
     for (const f of w.document.querySelectorAll('iframe')) {
       const sub = name + ' > ' + (f.id || f.title || 'iframe');
@@ -1033,6 +1040,9 @@ soundSpy(window, '首页');
   const hello = (kind) => { try { navigator.sendBeacon('/api/diag/sound', JSON.stringify({ at: new Date().toISOString().slice(11, 23), kind, frames: frames(window, '首页').join(' | ').slice(0, 380) })); } catch (e) { /* 报不了就算了 */ } };
   hello('页面打开，记录器开始工作');
   setTimeout(() => hello('打开 8 秒后'), 8000);
+  // ⑤ 事后检查：每个面板里的音频、视频元素有没有真的播过
+  const played = (w, name) => { const out = []; try { for (const el of w.document.querySelectorAll('audio,video')) out.push(name + ' <' + el.tagName.toLowerCase() + (el.id ? ' id=' + el.id : '') + '> ' + (el.played.length || el.currentTime > 0 || el.ended ? '播过' : '没播过')); for (const f of w.document.querySelectorAll('iframe')) { try { if (f.contentWindow.location.pathname !== 'blank') out.push(...played(f.contentWindow, name + '>' + (f.id || 'iframe'))); } catch (e) { /* 看不到 */ } } } catch (e) { /* 看不到 */ } return out; };
+  setTimeout(() => { try { navigator.sendBeacon('/api/diag/sound', JSON.stringify({ at: new Date().toISOString().slice(11, 23), kind: '打开 9 秒后：音频元素的状态', what: played(window, '首页').join(' | ').slice(0, 380) || '页面里没有音频元素', activation: navigator.userActivation ? '用户点过页面=' + navigator.userActivation.hasBeenActive : '' })); } catch (e) { /* 报不了就算了 */ } }, 9000);
 }
 const wrap = $('wrap');
 // ---- 地图模式：整页是一张导航地图 ----
