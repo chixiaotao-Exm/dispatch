@@ -360,13 +360,19 @@ function briefInput() {
 const CEO_BACKUP = LLM_CFG.ceoBackup || '';                       // CEO 用的模型不可用时的备用模型（走中转站）
 const AGENT_LLM_URL = (cfg.agent && cfg.agent.llmUrl) || '';      // Claude 系列模型走专用 Agent 容器里的 Claude 订阅
 const viaAgent = (model) => Boolean(AGENT_LLM_URL) && /^claude-/.test(model);
+// 模型偶尔会在回答里混进一段标记（比如 <某某>…</某某>），或者只回一串没有意义的符号。标记去掉；去掉之后什么都不剩，就当这次没答上来。
+function cleanReply(r) {
+  const text = String(r.text || '').replace(/<([a-z_]+)>[^<]*<\/\1>/gi, '').replace(/<\/?[a-z_]+>/gi, '').trim();
+  if (!/[\p{L}\p{N}]/u.test(text)) throw new Error('回答里没有内容');
+  return { ...r, text };
+}
 async function ceoCall(system, user, maxTokens) {
-  try { return await llmCall(CEO_MODEL, system, user, maxTokens); }
+  try { return cleanReply(await llmCall(CEO_MODEL, system, user, maxTokens)); }
   catch (e) {
     if (!CEO_BACKUP) throw e;
     ceoNote({ verdict: 'fallback', who: '', what: '这一次没用上 ' + CEO_MODEL + '，改用备用模型 ' + CEO_BACKUP, reason: String(e.message || e).slice(0, 120) });
     console.log(`[CEO] ${CEO_MODEL} 没有答复（${String(e.message || e).slice(0, 100)}），这次改用 ${CEO_BACKUP}`);
-    return llmCall(CEO_BACKUP, system, user, maxTokens);
+    return cleanReply(await llmCall(CEO_BACKUP, system, user, maxTokens));
   }
 }
 async function llmCall(model, system, user, maxTokens) {

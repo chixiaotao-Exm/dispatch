@@ -513,7 +513,7 @@ button:hover,.btn:hover{box-shadow:0 0 12px -2px var(--accent)}
 
 /* ================= 地图模式：整页是一张导航地图（屏幕够宽时）================= */
 #mapBox{display:none}
-.mapmode #mapBox{display:block;position:relative;margin-top:14px;height:calc(100vh / var(--zoom) - 118px);min-height:660px;border:1px solid var(--line);border-radius:8px;overflow:hidden;
+.mapmode #mapBox{display:block;position:relative;margin-top:14px;height:calc(100vh / var(--zoom) - 118px);min-height:430px;border:1px solid var(--line);border-radius:8px;overflow:hidden;
   background:radial-gradient(60% 55% at 50% 54%,#0c2038 0%,#071324 60%,#050d1a 100%)}
 /* 原来上下排列的那一套在地图模式里不显示（卡片已经挪进地图了） */
 .mapmode>.center,.mapmode>.v,.mapmode>#reportTag,.mapmode>.ceo-row,.mapmode>#bar,.mapmode>.cols{display:none}
@@ -525,9 +525,11 @@ button:hover,.btn:hover{box-shadow:0 0 12px -2px var(--accent)}
 #mapSvg .park rect{fill:rgba(46,230,166,.06);stroke:rgba(46,230,166,.16);vector-effect:non-scaling-stroke}
 #mapSvg .rd{stroke:#1a3e66;stroke-width:13}
 #mapSvg .rd.s{stroke:#15304f;stroke-width:7}
-#mapSvg .rt-base{stroke:#1f4a78;stroke-width:16}
-#mapSvg .rt{stroke:color-mix(in srgb,var(--rc) 82%,#06101c);stroke-width:8;filter:drop-shadow(0 0 5px var(--rc))}
-#mapSvg .rt-flow{stroke:#fff;stroke-width:2;stroke-dasharray:6 24;animation:mapFlow 1.5s linear infinite;opacity:.9}
+#mapSvg .rt-base{stroke:#1a3e66;stroke-width:13}
+#mapSvg .rt{stroke:color-mix(in srgb,var(--rc) 82%,#06101c);stroke-width:8;filter:drop-shadow(0 0 5px var(--rc));opacity:0;transition:opacity .6s}
+#mapSvg .rt.lit{opacity:1;transition:opacity .2s}
+#mapSvg .rt-flow{stroke:#fff;stroke-width:2;stroke-dasharray:6 24;animation:mapFlow 1.5s linear infinite;opacity:0;transition:opacity .6s}
+#mapSvg .rt-flow.lit{opacity:.9;transition:opacity .2s}
 @keyframes mapFlow{to{stroke-dashoffset:30}}
 @media (prefers-reduced-motion:reduce){#mapSvg .rt-flow,.place.puck .pk::after{animation:none}}
 /* 地点：一个钉在路上的点，上面是它的卡片 */
@@ -964,6 +966,7 @@ const MAP = {
     this.rows = [...p.col.querySelectorAll(':scope > .rows')].map((el) => ({ el, next: el.nextSibling }));
     for (const r of this.rows) $('ppBody').appendChild(r.el);
     panel.hidden = false; $('hudRight').hidden = true;
+    this.light(key);
     $('place-' + key).classList.add('open');
     setTrunks();
     $('ppClose').focus();
@@ -975,9 +978,40 @@ const MAP = {
     this.rows = [];
     $('placePanel').hidden = true; $('hudRight').hidden = false;
     const el = $('place-' + this.open); if (el) el.classList.remove('open');
+    const was = this.open;
     this.open = '';
+    this.dim(was);
   },
-  fit() { if (innerWidth >= 1280 && innerHeight >= 600) this.enter(); else this.exit(); },
+  // 底部面板（任务、终端、文件……）打开时，地图缩到面板上方，整张图始终在一屏里，不用上下滑动。
+  size() {
+    if (!this.on) return;
+    const t = $('term'), th = t.hidden || t.classList.contains('max') ? 0 : t.getBoundingClientRect().height;
+    const z = wrap.getBoundingClientRect().width / wrap.offsetWidth || 1;
+    $('mapBox').style.height = Math.max(430, Math.round((innerHeight - th) / z - 118)) + 'px';
+  },
+  // 路线平时不亮。一次通讯经过哪条路线，哪条就亮起来，过一会儿再暗下去；鼠标停在房子上、点开房子时，它的路线也亮。
+  timers: {},
+  light(key, ms) {
+    for (const el of document.querySelectorAll(`#mapSvg [data-rt="${key}"]`)) el.classList.add('lit');
+    clearTimeout(this.timers[key]);
+    if (ms) this.timers[key] = setTimeout(() => this.dim(key), ms);
+  },
+  dim(key) {
+    if (this.open === key || this.hover === key) return;
+    for (const el of document.querySelectorAll(`#mapSvg [data-rt="${key}"]`)) el.classList.remove('lit');
+  },
+  // 一串要走的点，两头落在哪个地点上，就点亮哪个地点的路线。
+  lightFor(points, ms) {
+    if (!this.on || !points || points.length < 2) return;
+    const a = points[0], b = points[points.length - 1];
+    for (const k of Object.keys(this.places)) {
+      const p = this.path(k);
+      if (!p) continue;
+      const e = p[p.length - 1];
+      if (Math.hypot(e.x - a.x, e.y - a.y) < 4 || Math.hypot(e.x - b.x, e.y - b.y) < 4) this.light(k, ms + 1200);
+    }
+  },
+  fit() { if (innerWidth >= 1280 && innerHeight >= 600) this.enter(); else this.exit(); this.size(); },
 };
 const TAGS = { boss: $('reportTag'), site: $('siteTag'), music: $('musicTag'), agent: $('agentTag'), bot: $('botTag'), auto: $('autoTag'), relay: $('relayTag'), srv: $('srvTag') };
 const IDLE = { boss: '↑ 有异常才找你', site: '↓ 定时巡检', music: '↓ 定时巡检', agent: '↓ 待命', bot: '↓ 待命', auto: '↓ 到点或告警时派活', relay: '↓ 每分钟读数', srv: '↓ 定时巡检' };
@@ -998,6 +1032,7 @@ function box(el) {
 }
 // 让一个光点（带两个拖尾）沿折线 points 移动，到达后让 target 闪一下。
 async function fly(points, color, ms, target, small) {
+  MAP.lightFor(points, ms);
   let total = 0;
   const dist = [0];
   for (let i = 1; i < points.length; i++) {
@@ -2247,6 +2282,12 @@ setInterval(() => MAP.sync(), 2000);
 $('mapPlaces').addEventListener('click', (e) => { const c = e.target.closest('[data-place]'); if (c && !e.target.closest('button,a')) MAP.show(c.dataset.place); });
 $('mapPlaces').addEventListener('keydown', (e) => { const c = e.target.closest('[data-place]'); if (c && e.target === c && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); MAP.show(c.dataset.place); } });
 $('ppClose').addEventListener('click', () => MAP.close());
+// 鼠标停在一栋房子上，它的路线亮起来；移开就暗下去。
+$('mapPlaces').addEventListener('mouseover', (e) => { const p = e.target.closest('.place'); const k = p ? p.id.slice(6) : ''; if (k === MAP.hover) return; const old = MAP.hover; MAP.hover = k; if (old) MAP.dim(old); if (k) MAP.light(k); });
+$('mapPlaces').addEventListener('mouseleave', () => { const old = MAP.hover; MAP.hover = ''; if (old) MAP.dim(old); });
+// 底部面板打开、关闭、拖动高度时，地图跟着调整。
+new ResizeObserver(() => MAP.size()).observe($('term'));
+new MutationObserver(() => MAP.size()).observe($('term'), { attributes: true, attributeFilter: ['hidden', 'class'] });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && MAP.open && $('dlgBack').hidden && $('todoBack').hidden) MAP.close(); });
 setInterval(load, 15000);
 load();
