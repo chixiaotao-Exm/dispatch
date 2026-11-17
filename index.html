@@ -636,6 +636,30 @@ button:hover,.btn:hover{box-shadow:0 0 12px -2px var(--accent)}
 .bld:nth-of-type(3n){height:52px}
 .bld:nth-of-type(4n+1){height:34px;font-size:12px}
 .bld:nth-of-type(5n+2){border-radius:3px 12px 3px 3px}
+
+/* ---- 明细直接摆在园区里：每一条明细是一栋楼，原样显示（名字、数字、按钮都在），不用点开面板 ---- */
+.place>.rows{display:contents}
+.place>.rows::before{display:none}
+.place>.card{cursor:default}
+/* 园区里的主楼和别的楼一样高，屏幕小的时候一起变矮，不会压到下面那栋 */
+.place.campus>.card{max-height:var(--ch,88px);overflow:hidden;padding:8px 12px}
+.place.campus>.card .big{font-size:22px;line-height:1.2}
+.place .row{position:absolute;margin:0;max-height:var(--ch,88px);overflow:hidden;padding:8px 11px 9px;border-radius:6px;animation:none;
+  border:1px solid color-mix(in srgb,var(--glow) 45%,#0a1a2e);
+  background:linear-gradient(160deg,color-mix(in srgb,var(--glow) 14%,#0b1c33),color-mix(in srgb,var(--glow) 5%,#081424));
+  box-shadow:0 4px 0 -1px color-mix(in srgb,var(--glow) 30%,#050d1a),0 8px 14px rgba(0,0,0,.45)}
+.place .row[hidden]{display:none}
+.place .row::before,.place .row::after{display:none}
+.place .row.bad{border-color:var(--bad)}
+/* 一栋楼里内容多的时候先只露出上半截；鼠标停上去（或者用键盘走到里面的按钮）就整栋展开，盖在别的楼上面 */
+.place .row:hover,.place .row:focus-within{max-height:none;z-index:30;transform:none!important;border-color:var(--glow);
+  box-shadow:0 4px 0 -1px var(--glow),0 0 22px -2px var(--glow),0 14px 30px rgba(0,0,0,.6)}
+.place .row .btn{padding:2px 9px;font-size:12px}
+.place .row .l2{margin-top:3px}
+/* 屏幕太小摆不下时的"还有 N 条" */
+.place .more{position:absolute;height:var(--ch,60px);max-height:54px;border-radius:6px;border:1px dashed var(--glow);background:rgba(6,16,30,.85);color:var(--glow);font:inherit;font-size:12px;cursor:pointer}
+.place .more:hover{background:color-mix(in srgb,var(--glow) 14%,#06101e)}
+#hudLeft{max-height:44%}#hudRight{max-height:44%}
 </style>
 </head>
 <body>
@@ -869,25 +893,25 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 // 通信动画：每轮巡视时按"派发 → 汇报 → 上报"的顺序点亮对应的连接线。
 const wrap = $('wrap');
 // ---- 地图模式：整页是一张导航地图 ----
-// 每个 Agent 是地图上的一个园区：园区里有一栋主楼（就是它原来的卡片），它的每一条明细（每个网站、每台服务器、每个 Bot……）
-// 各是园区里的一栋小楼，直接摆在地图上。CEO Agent 是"当前位置"，到每个园区门口有一条沿着道路走的规划路线，
-// 真实发生的通讯就是导航箭头在这些路线上行驶。点园区里任何一栋楼，右边展开完整的明细。
-// 屏幕不够宽时不进入地图模式，还是原来上下排列的样子。地图里用的都是原来那些卡片（只是挪了位置），所以数据怎么填都不用改。
+// 每个 Agent 是地图上的一个园区：园区里有一栋主楼（就是它原来的卡片），它的每一条明细（每个网站、每台服务器、每个库……）
+// 各是园区里的一栋楼，原样摆在地图上——名字、数字、按钮都在，不用点开任何面板。鼠标停在一栋楼上，它会展开显示全部内容。
+// CEO Agent 是"当前位置"，到每个园区门口有一条沿着道路走的规划路线，真实发生的通讯就是导航箭头在这些路线上行驶。
+// 屏幕不够宽时不进入地图模式，还是原来上下排列的样子。地图里用的都是原来那些卡片和明细行（只是挪了位置），所以数据怎么填都不用改。
 const MAP = {
   on: false, W: 1000, H: 560, C: [505, 270], moved: [], routes: {}, open: '', hover: '', timers: {},
   // at：园区门口（路线的终点）。via：从 CEO Agent 沿道路走到门口要经过的拐点。box：园区占的地（左、上、右、下）。
-  // main：主楼在园区里的位置（0~1）。故意摆得不整齐。地图是 1000 × 560 的格子。
+  // main：只有一栋楼的园区里，那栋楼的位置（0~1）。地图是 1000 × 560 的格子。
   places: {
     boss:  { card: 'bossCard', at: [520, 70], via: [[512, 170]], color: '--c-boss', cls: 'boss', box: [432, 6, 612, 60], main: [0.45, 0.2], mw: 300 },
     lineL: { card: 'lineLeftCard', at: [330, 135], via: [[440, 215], [370, 160]], color: '--c-pojia', cls: 'line', side: 'lineLeft', box: [232, 34, 356, 122], main: [0.4, 0.6], mw: 250 },
     lineR: { card: 'lineRightCard', at: [700, 150], via: [[590, 225], [660, 180]], color: '--c-qiye', cls: 'line', side: 'lineRight', box: [668, 50, 792, 136], main: [0.5, 0.35], mw: 250 },
-    site:  { card: 'siteCard', at: [188, 318], via: [[390, 292], [270, 318]], color: '--c-site', detail: true, box: [12, 260, 182, 410], main: [0.7, 0.06] },
-    music: { card: 'musicCard', at: [258, 425], via: [[390, 292], [300, 360]], color: '--c-music', detail: true, box: [138, 434, 336, 553], main: [0.06, 0.1] },
-    auto:  { card: 'autoCard', at: [410, 438], via: [[470, 345], [425, 395]], color: '--c-auto', detail: true, box: [350, 448, 506, 553], main: [0.62, 0.08] },
-    bot:   { card: 'botCard', at: [575, 425], via: [[545, 345]], color: '--c-bot', detail: true, box: [520, 436, 656, 553], main: [0.1, 0.12] },
-    store: { card: 'storeCard', at: [715, 440], via: [[620, 318], [690, 385]], color: '--c-store', detail: true, box: [670, 450, 844, 553], main: [0.55, 0.06] },
-    relay: { card: 'relayCard', at: [862, 318], via: [[640, 278], [770, 300]], color: '--c-relay', detail: true, box: [868, 262, 992, 380], main: [0.3, 0.1] },
-    srv:   { card: 'srvCard', at: [850, 440], via: [[640, 278], [770, 300], [815, 400]], color: '--c-srv', detail: true, box: [858, 398, 994, 553], main: [0.35, 0.06] },
+    site:  { card: 'siteCard', at: [178, 322], via: [[390, 288], [270, 316]], color: '--c-site', detail: true, box: [8, 258, 172, 392] },
+    relay: { card: 'relayCard', at: [832, 300], via: [[640, 290]], color: '--c-relay', detail: true, box: [838, 258, 994, 372] },
+    music: { card: 'musicCard', at: [192, 401], via: [[330, 335], [232, 386]], color: '--c-music', detail: true, box: [8, 408, 186, 554] },
+    auto:  { card: 'autoCard', at: [322, 414], via: [[420, 330]], color: '--c-auto', detail: true, box: [214, 420, 438, 554] },
+    bot:   { card: 'botCard', at: [410, 232], via: [[452, 252]], color: '--c-bot', detail: true, box: [212, 148, 404, 250] },
+    store: { card: 'storeCard', at: [604, 396], via: [[560, 330]], color: '--c-store', detail: true, box: [464, 402, 772, 554] },
+    srv:   { card: 'srvCard', at: [882, 408], via: [[640, 290], [790, 350]], color: '--c-srv', detail: true, box: [798, 414, 994, 554] },
   },
   keyOf(card) { return Object.keys(this.places).find((k) => this.places[k].card === (card && card.id)); },
   // 固定的"随机"：同一个名字每次得到同一串数，所以地图每次打开都长一个样。
@@ -911,32 +935,32 @@ const MAP = {
   build() {
     const P = this.places, C = this.C, rand = this.rng('city'), j = (n) => (rand() * 2 - 1) * n;
     // 水：一条河、一个湖。
-    let svg = '<path class="river" d="M-20 118 C110 150 170 62 300 92 S410 236 520 212 S690 64 820 112 S950 246 1020 212"/>'
-      + '<path class="lake" d="M228 208 C250 186 292 190 306 212 S300 256 268 258 S214 236 228 208 Z"/>';
+    let svg = '<path class="river" d="M-20 142 C70 150 140 130 205 136 S310 128 420 134 S570 150 650 198 S820 250 1020 228"/>';
+
     // 园区的地：一块不规则的地皮，带一点这个 Agent 的颜色，虚线是围墙。
     for (const [k, p] of Object.entries(P)) {
       const [x0, y0, x1, y1] = p.box, mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
-      const v = [[x0 + j(5), y0 + j(4)], [mx + j(16), y0 - 3 + j(4)], [x1 + j(5), y0 + j(4)], [x1 + 3 + j(4), my + j(12)], [x1 + j(5), y1 + j(4)], [mx + j(16), y1 + 2 + j(3)], [x0 + j(5), y1 + j(4)], [x0 - 3 + j(4), my + j(12)]];
-      svg += `<path class="camp" data-rt="${k}" style="--rc:var(${p.color})" d="M${v.map((q) => q[0].toFixed(1) + ' ' + Math.min(558, q[1]).toFixed(1)).join(' L')} Z"/>`;
+      const v = [[x0 - 2 + j(3), y0 - 2 + j(3)], [mx + j(18), y0 - 4 + j(3)], [x1 + 2 + j(3), y0 - 2 + j(3)], [x1 + 4 + j(3), my + j(14)], [x1 + 2 + j(3), y1 + 2 + j(2)], [mx + j(18), y1 + 3 + j(2)], [x0 - 2 + j(3), y1 + 2 + j(2)], [x0 - 4 + j(3), my + j(14)]];
+      svg += `<path class="camp" data-rt="${k}" style="--rc:var(${p.color})" d="M${v.map((q) => Math.max(1, Math.min(999, q[0])).toFixed(1) + ' ' + Math.max(1, Math.min(559, q[1])).toFixed(1)).join(' L')} Z"/>`;
     }
     // 零散的小建筑：不属于任何园区，只是让它像一座城市。避开园区、两块信息面板和 CEO Agent。
-    for (let i = 0, n = 0; i < 400 && n < 78; i++) {
+    for (let i = 0, n = 0; i < 500 && n < 70; i++) {
       const w = 9 + rand() * 20, h = 7 + rand() * 13, x = rand() * (1000 - w), y = rand() * (560 - h);
-      const hit = Object.values(P).some((p) => x < p.box[2] + 7 && x + w > p.box[0] - 7 && y < p.box[3] + 7 && y + h > p.box[1] - 7)
-        || (x < 172 && y < 256) || (x + w > 828 && y < 256) || Math.hypot(x + w / 2 - C[0], y + h / 2 - C[1]) < 46;
+      const hit = Object.values(P).some((p) => x < p.box[2] + 8 && x + w > p.box[0] - 8 && y < p.box[3] + 8 && y + h > p.box[1] - 8)
+        || (x < 205 && y < 256) || (x + w > 795 && y < 256) || Math.hypot(x + w / 2 - C[0], y + h / 2 - C[1]) < 46;
       if (hit) continue;
       n++;
       svg += `<rect class="fp" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="1.5" transform="rotate(${[0, 0, 12, -18, 27, -8][Math.floor(rand() * 6)]} ${(x + w / 2).toFixed(1)} ${(y + h / 2).toFixed(1)})"/>`;
     }
     // 没有路线经过的道路：弯弯曲曲的环路、斜穿的大道、把各个园区门口连起来的小路，还有一条铁路。
-    svg += ['M40 250 C120 150 300 40 520 30 S900 120 960 260 S820 544 520 550 S60 430 40 250',
-      'M-20 60 C150 110 260 200 390 292 S560 420 640 580', 'M1020 470 C900 430 800 330 640 278 S380 180 300 -20',
-      'M188 318 C150 362 150 402 182 434', 'M258 425 C300 474 344 482 410 438', 'M410 438 C470 470 520 462 575 425', 'M575 425 C620 444 680 452 715 440',
-      'M715 440 C780 428 820 446 850 440', 'M862 318 C876 352 866 384 850 440', 'M330 135 C380 100 450 78 520 70', 'M520 70 C600 78 660 110 700 150',
-      'M700 150 C780 190 842 250 862 318', 'M188 318 C196 250 260 178 330 135', 'M0 500 C60 470 100 500 140 470', 'M905 0 C890 60 930 150 1000 170', 'M60 0 C90 40 150 30 200 36']
+    svg += ['M40 250 C120 150 300 40 520 30 S900 120 960 250 S820 398 520 392 S60 400 40 250',
+      'M-20 60 C100 96 170 120 205 138 S330 270 390 288 S440 380 322 414', 'M1020 330 C900 330 780 320 640 290 S380 180 300 -20',
+      'M178 322 C198 350 204 380 192 401', 'M192 401 C232 392 282 396 322 414', 'M322 414 C420 380 520 380 604 396', 'M330 135 C350 170 382 210 410 232',
+      'M604 396 C700 372 800 380 882 408', 'M882 408 C892 370 872 330 832 300', 'M330 135 C380 100 450 78 520 70', 'M520 70 C600 78 660 110 700 150',
+      'M700 150 C780 190 830 240 832 300', 'M178 322 C190 250 260 178 330 135', 'M905 0 C890 60 930 150 1000 170', 'M60 0 C90 40 150 30 200 36']
       .map((d, i) => `<path class="rd s" d="${d}"${i === 0 ? ' style="opacity:.75"' : ''}/>`).join('')
-      + '<path class="rd" d="M-20 524 C200 470 330 380 505 270 S800 92 1020 40"/>'
-      + '<path class="rail" d="M-20 398 C150 380 250 524 420 502 S700 352 1020 382"/>';
+      + '<path class="rd" d="M-20 398 C200 392 330 360 505 270 S800 92 1020 40"/>'
+      + '<path class="rail" d="M-20 240 C150 250 250 380 420 366 S700 232 1020 250"/>';
     let base = '', lit = '', flow = '';
     for (const [k, p] of Object.entries(P)) {
       const d = this.d([C, ...p.via, p.at]);
@@ -958,27 +982,23 @@ const MAP = {
     this.move($('ceoLogCard'), $('hudRight'));
     this.move($('usageCard'), $('hudRight'));
     if (!this.watch) {
-      // 明细有变化（多了一个网站、一台服务器变红……）时，园区里的小楼跟着更新；卡片大小变了也重新摆一遍。
+      // 明细有变化（多了一个网站、一台服务器变红……）或者卡片大小变了，就把园区里的楼重新摆一遍。
       let t = 0;
-      const again = () => { clearTimeout(t); t = setTimeout(() => { if (!this.on) return; for (const k of Object.keys(this.places)) this.minis(k); this.layout(); }, 150); };
+      const again = () => { clearTimeout(t); t = setTimeout(() => this.layout(), 120); };
       this.watch = new MutationObserver(again);
       this.sizes = new ResizeObserver(again);
     }
     for (const [k, p] of Object.entries(this.places)) {
       const card = $(p.card), el = document.createElement('div');
-      el.className = 'place ' + (p.cls || '') + (p.detail ? ' has-detail' : '');
+      el.className = 'place ' + (p.cls || '') + (p.detail ? ' campus' : '');
       el.id = 'place-' + k;
       el.style.left = p.at[0] / 10 + '%'; el.style.top = p.at[1] / 5.6 + '%';
       el.style.setProperty('--glow', `var(${p.color})`); el.style.setProperty('--glow2', `var(${p.color})`);
-      p.col = card.parentNode;   // 这个地点原来所在的那一列，明细行都在里面
-      p.rowEls = p.detail ? [...p.col.querySelectorAll(':scope > .rows')] : [];
-      p.sig = '';
-      for (const r of p.rowEls) this.watch.observe(r, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'], characterData: true });
+      p.rowEls = p.detail ? [...card.parentNode.querySelectorAll(':scope > .rows')] : [];
       this.move(card, el);
       this.sizes.observe(card);
-      if (p.detail) { card.setAttribute('role', 'button'); card.tabIndex = 0; card.title = '点开看这个园区的全部明细'; card.dataset.place = k; }
+      for (const r of p.rowEls) { this.move(r, el); this.watch.observe(r, { childList: true, subtree: true, characterData: true }); }
       $('mapPlaces').appendChild(el);
-      this.minis(k);
     }
     this.sync();
   },
@@ -986,69 +1006,64 @@ const MAP = {
     if (!this.on) return;
     this.close();
     this.watch.disconnect(); this.sizes.disconnect();
+    for (const row of document.querySelectorAll('#mapPlaces .row')) { row.hidden = false; for (const prop of ['left', 'top', 'width', 'transform']) row.style.removeProperty(prop); }
     for (const m of this.moved.reverse()) m.parent.insertBefore(m.el, m.next && m.next.parentNode === m.parent ? m.next : null);
     this.moved = [];
-    for (const p of Object.values(this.places)) {
-      const c = $(p.card);
-      for (const prop of ['left', 'top', 'bottom', 'width']) c.style.removeProperty(prop);
-      if (p.detail) { c.removeAttribute('role'); c.removeAttribute('tabindex'); c.removeAttribute('title'); delete c.dataset.place; }
-    }
+    for (const p of Object.values(this.places)) for (const prop of ['left', 'top', 'bottom', 'width']) $(p.card).style.removeProperty(prop);
     $('mapPlaces').innerHTML = '';
     wrap.classList.remove('mapmode');
     this.on = false;
     setTrunks(); setDrops();
   },
-  // 园区里的小楼：这个 Agent 的每一条明细一栋，写着名字，亮着它的状态灯。
-  minis(k) {
-    const p = this.places[k], el = $('place-' + k);
-    if (!p.detail || !el) return;
-    const items = [];
-    for (const rs of p.rowEls) for (const row of rs.querySelectorAll('.row')) {
-      const l1 = row.querySelector('.l1');
-      if (!l1) continue;
-      const nameEl = l1.querySelector('a,.host') || [...l1.children].find((c) => !c.classList.contains('dot') && !c.classList.contains('ms') && c.textContent.trim());
-      const name = (nameEl ? nameEl.textContent : '').trim();
-      if (!name) continue;
-      const dot = row.querySelector('.dot'), st = row.classList.contains('bad') ? 'bad' : !dot ? '' : dot.classList.contains('bad') ? 'bad' : dot.classList.contains('warn') ? 'warn' : dot.classList.contains('ok') ? 'ok' : '';
-      items.push({ name, st, row });
-    }
-    const sig = JSON.stringify(items.map((it) => [it.name, it.st]));
-    if (sig === p.sig) return;
-    p.sig = sig; p.items = items;
-    for (const b of el.querySelectorAll('.bld')) b.remove();
-    items.slice(0, 9).forEach((it, i) => {
-      const b = document.createElement('div');
-      b.className = 'bld'; b.dataset.place = k; b.dataset.i = i; b.title = it.name + '（点开看明细）';
-      b.innerHTML = `<span class="dot ${it.st}"></span><span class="nm">${esc(it.name)}</span>`;
-      el.appendChild(b);
-    });
-  },
-  // 把每个园区的主楼和小楼摆好：主楼放在定好的位置，小楼在园区里随机找空地，互相不压，也不挡门口；实在放不下的就不摆。
+  // 把每个园区里的楼摆好。主楼和每一条明细各占一栋：先按园区大小定出能摆几列几排，再把楼打乱顺序放进去，
+  // 每栋在自己那一格里随机挪一点、歪一点，所以不整齐，但互相不压。屏幕太小实在摆不下的，收进一栋"还有 N 条"里。
   layout() {
     if (!this.on) return;
-    const B = $('mapBox'), W = B.clientWidth, H = B.clientHeight;
+    const B = $('mapBox'), W = B.clientWidth, H = B.clientHeight, G = 10;
     for (const [k, p] of Object.entries(this.places)) {
       const el = $('place-' + k), card = $(p.card);
       if (!el || el.hidden) continue;
       const gx = p.at[0] / 1000 * W, gy = p.at[1] / 560 * H;
       const x0 = p.box[0] / 1000 * W - gx, y0 = p.box[1] / 560 * H - gy, bw = (p.box[2] - p.box[0]) / 1000 * W, bh = (p.box[3] - p.box[1]) / 560 * H;
-      const mw = Math.round(Math.min(p.mw || 212, bw - 6));
-      card.style.width = mw + 'px'; card.style.bottom = 'auto';
-      const mh = card.offsetHeight, mx = Math.round(x0 + p.main[0] * Math.max(0, bw - mw)), my = Math.round(y0 + p.main[1] * Math.max(0, bh - mh));
-      card.style.left = mx + 'px'; card.style.top = my + 'px';
-      const taken = [[mx, my, mw, mh + 8], [-14, -14, 28, 28]], rand = this.rng(k);
-      for (const b of el.querySelectorAll('.bld')) {
-        b.hidden = false;
-        const w = b.offsetWidth, h = b.offsetHeight;
-        let ok = false;
-        for (let t = 0; t < 320 && !ok; t++) {
-          const x = x0 + rand() * (bw - w), y = y0 + rand() * (bh - h - 5);
-          if (taken.some((r) => x < r[0] + r[2] + 7 && x + w + 7 > r[0] && y < r[1] + r[3] + 9 && y + h + 9 > r[1])) continue;
-          b.style.left = Math.round(x) + 'px'; b.style.top = Math.round(y) + 'px'; b.style.transform = `rotate(${(rand() * 6 - 3).toFixed(1)}deg)`;
-          taken.push([x, y, w, h]); ok = true;
-        }
-        if (!ok) b.hidden = true;
+      card.style.bottom = 'auto';
+      if (!p.detail) {   // 只有一栋楼的园区
+        const mw = Math.round(Math.min(p.mw || 212, bw - 6));
+        card.style.width = mw + 'px';
+        card.style.left = Math.round(x0 + p.main[0] * Math.max(0, bw - mw)) + 'px'; card.style.top = Math.round(y0 + p.main[1] * Math.max(0, bh - card.offsetHeight)) + 'px';
+        continue;
       }
+      const rows = [...el.querySelectorAll('.row')], n = rows.length + 1;
+      // 试几种"几列、每栋多高"的摆法，挑能摆下最多楼的；都摆得下时挑楼最大的。
+      let best = null;
+      for (let cols = 1; cols <= 4; cols++) {
+        const w = (bw - (cols - 1) * G) / cols;
+        if (w < 128 && cols > 1) break;
+        for (const ch of [88, 74, 60, 48]) {
+          const r = Math.max(1, Math.floor((bh + G) / (ch + G))), cap = cols * r, score = Math.min(n, cap) * 1000 + ch * 3 + Math.min(w, 240);
+          if (!best || score > best.score) best = { cols, r, ch, cap, w: Math.min(w, 250), score };
+        }
+      }
+      const rand = this.rng(k), cells = [];
+      for (let r = 0; r < best.r; r++) for (let c = 0; c < best.cols; c++) cells.push([c, r]);
+      for (let i = cells.length - 1; i > 0; i--) { const q = Math.floor(rand() * (i + 1)); [cells[i], cells[q]] = [cells[q], cells[i]]; }
+      const over = n > best.cap, usable = over ? best.cap - 1 : best.cap;
+      const cw = bw / best.cols, chh = bh / best.r;
+      const put = (node, i, tilt) => {
+        const [c, r] = cells[i];
+        node.style.width = Math.round(best.w) + 'px';
+        node.style.left = Math.round(x0 + c * cw + rand() * Math.max(0, cw - best.w - 4)) + 'px';
+        node.style.top = Math.round(y0 + r * chh + rand() * Math.max(0, chh - best.ch - 6)) + 'px';
+        if (tilt) node.style.transform = `rotate(${(rand() * 3.4 - 1.7).toFixed(1)}deg)`;
+      };
+      el.style.setProperty('--ch', best.ch + 'px');
+      put(card, 0, false);
+      rows.forEach((row, i) => { if (i + 1 < usable) { row.hidden = false; put(row, i + 1, true); } else row.hidden = true; });
+      let more = el.querySelector('.more');
+      if (over) {
+        if (!more) { more = document.createElement('button'); more.className = 'more'; more.dataset.more = k; el.appendChild(more); }
+        more.textContent = `还有 ${n - usable} 条，点开看 ›`;
+        put(more, usable, true);
+      } else if (more) more.remove();
     }
   },
   // 没配置的线路 Agent 不出现在地图上，它的路线和地皮也不显示。
@@ -1072,44 +1087,35 @@ const MAP = {
     for (let i = 0; i <= n; i++) { const p = el.getPointAtLength(L * i / n); pts.push({ x: (r.left + p.x / this.W * r.width - w.left) / z, y: (r.top + p.y / this.H * r.height - w.top) / z }); }
     return back ? pts.reverse() : pts;
   },
-  // 点园区里的一栋楼：把这个 Agent 的明细行搬进右边的面板；关掉时搬回去。keep 为 true 时已经开着就不关。
-  show(key, keep) {
+  // 只有屏幕太小、园区里摆不下全部明细时才用得到：点"还有 N 条"，把这个园区的明细整列搬进右边的面板；关掉时搬回园区。
+  show(key) {
     const p = this.places[key];
     if (!p || !p.detail) return;
-    if (this.open === key) { if (!keep) this.close(); return; }
+    if (this.open === key) return this.close();
     this.close();
     this.open = key;
-    const panel = $('placePanel');
+    const panel = $('placePanel'), el = $('place-' + key);
     panel.style.setProperty('--glow', `var(${p.color})`); panel.style.setProperty('--glow2', `var(${p.color})`); panel.style.setProperty('--tree', `color-mix(in srgb,var(${p.color}) 35%,var(--line))`);
     $('ppTitle').textContent = ($(p.card).querySelector('.head') || $(p.card)).textContent.trim();
-    this.rows = p.rowEls.map((el) => ({ el, next: el.nextSibling }));
-    for (const r of this.rows) $('ppBody').appendChild(r.el);
+    for (const row of el.querySelectorAll('.row')) { row.hidden = false; for (const prop of ['left', 'top', 'width', 'transform']) row.style.removeProperty(prop); }
+    const more = el.querySelector('.more'); if (more) more.remove();
+    for (const r of p.rowEls) $('ppBody').appendChild(r);
     panel.hidden = false; $('hudRight').hidden = true;
     this.light(key);
-    $('place-' + key).classList.add('open');
+    el.classList.add('open');
     setTrunks();
     $('ppClose').focus();
   },
   close() {
     if (!this.open) return;
-    const p = this.places[this.open];
-    for (const r of this.rows || []) p.col.insertBefore(r.el, r.next && r.next.parentNode === p.col ? r.next : null);
-    this.rows = [];
+    const p = this.places[this.open], el = $('place-' + this.open);
+    for (const r of p.rowEls) el.appendChild(r);
     $('placePanel').hidden = true; $('hudRight').hidden = false;
-    const el = $('place-' + this.open); if (el) el.classList.remove('open');
+    el.classList.remove('open');
     const was = this.open;
     this.open = '';
     this.dim(was);
-  },
-  // 点一栋小楼：打开它所在园区的明细，并把对应的那一行滚到眼前、亮一下。
-  showItem(key, i) {
-    this.show(key, true);
-    const it = (this.places[key].items || [])[i];
-    if (!it || !it.row.isConnected) return;
-    it.row.scrollIntoView({ block: 'center' });
-    it.row.style.setProperty('--pc', `var(${this.places[key].color})`);
-    it.row.classList.add('hit');
-    setTimeout(() => it.row.classList.remove('hit'), 900);
+    this.layout();
   },
   // 底部面板（任务、终端、文件……）打开时，地图缩到面板上方，整张图始终在一屏里，不用上下滑动。
   size() {
@@ -1119,7 +1125,7 @@ const MAP = {
     $('mapBox').style.height = Math.max(430, Math.round((innerHeight - th) / z - 118)) + 'px';
     this.layout();
   },
-  // 路线平时不亮。一次通讯经过哪条路线，哪条就亮起来，过一会儿再暗下去；鼠标停在园区上、点开园区时，它的路线也亮。
+  // 路线平时不亮。一次通讯经过哪条路线，哪条就亮起来，过一会儿再暗下去；鼠标停在园区上时，它的路线也亮。
   light(key, ms) {
     for (const el of document.querySelectorAll(`#mapSvg [data-rt="${key}"]`)) el.classList.add('lit');
     clearTimeout(this.timers[key]);
@@ -2408,8 +2414,7 @@ setInterval(() => { $('clock').textContent = new Date().toLocaleTimeString('zh-C
 MAP.fit();
 addEventListener('resize', () => MAP.fit());
 setInterval(() => MAP.sync(), 2000);
-$('mapPlaces').addEventListener('click', (e) => { const c = e.target.closest('[data-place]'); if (!c || e.target.closest('button,a')) return; if (c.classList.contains('bld')) MAP.showItem(c.dataset.place, Number(c.dataset.i)); else MAP.show(c.dataset.place); });
-$('mapPlaces').addEventListener('keydown', (e) => { const c = e.target.closest('[data-place]'); if (c && e.target === c && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); MAP.show(c.dataset.place); } });
+$('mapPlaces').addEventListener('click', (e) => { const m = e.target.closest('[data-more]'); if (m) MAP.show(m.dataset.more); });
 $('ppClose').addEventListener('click', () => MAP.close());
 // 鼠标停在一栋房子上，它的路线亮起来；移开就暗下去。
 $('mapPlaces').addEventListener('mouseover', (e) => { const p = e.target.closest('.place'); const k = p ? p.id.slice(6) : ''; if (k === MAP.hover) return; const old = MAP.hover; MAP.hover = k; if (old) MAP.dim(old); if (k) MAP.light(k); });
