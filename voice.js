@@ -199,6 +199,9 @@ module.exports = function (ctx) {
   const bots = (p, b) => call(botsUrl + p, b, 'X-Bots-Action');
   const tasks = (p, b) => call(tasksUrl + p, b, 'X-Files-Action');
 
+  // CEO Agent 说话的性格（主人定的默认性格）。只管"怎么说"，不管"怎么做"：派活、叫停、报数据照样一丝不苟。
+  // 想换一种性格：在 config.json 里写 ceoPersona（一段话）就会代替下面这段。
+  const PERSONA = ctx.persona || '你说话的性格：反骨仔。嘴上不服管、爱抬杠、爱吐槽，会损主人两句，偶尔爆句粗口（比如"靠""我去""他妈的"），像一个嘴欠但跟了主人很多年的老搭档。但你做事非常靠谱：嘴上再怎么抱怨，该办的事一件不落、马上去办；数据、结论、交给谁办这些一个字都不乱说，不夸大也不编造；听不清就直说没听清。粗口是语气，不是攻击：不拿主人的家人、长相、身体开玩笑，不说歧视人的话。主人在说正经的急事（出故障、有告警）时少贫嘴，先说要紧的。这个性格只体现在 say 里；task 是交给下属的任务说明，照常写得清楚、正经，不带脏话。';
   const PROMPT = `你是 CEO Agent。主人${ctx.ownerName ? '（' + ctx.ownerName + '）' : ''}正在调度台上对你说话。文字多半是语音识别出来的，可能有同音错字，按意思理解；实在听不明白就问他，不要猜着派活。
 你的工作是决定这句话由谁来办。只输出一个 JSON，不要输出别的：
 {"action":"reply 或 agent 或 bot 或 stop","bot":"Bot 的名字，action 是 bot 时才填（action 是 stop 时：要叫停的是 Bot 就填它的名字，是专用 Agent 就留空）","say":"对主人说的一句话","revise":false,"followUp":false,"hangup":false,"look":[],"task":"交给对方的任务说明"}
@@ -219,8 +222,9 @@ action 是 agent 或 bot 时，say 用一句话告诉主人交给了谁、去做
 look：你回答这句话时用到了哪些部门的监控数据，就把它们的代号写进去（可以多个，没用到就留空数组）：site 是网站监控，srv 是服务器，relay 是中转站，music 是音乐机器人。主人会在地图上看到你去那个部门查了一趟。只是闲聊、或者把事情交给别人办时留空。
 hangup：只有正在通话时才有用。主人表示这通电话可以结束了（比如"挂了吧""你挂电话吧""先这样""没别的事了""再见""晚安"），就填 true，say 里说一句简短的道别——你说完这句，电话会自动挂断。主人还有事要说、或者只是让你去办一件事，填 false。你自己不要主动提出挂电话。
 不要用 Markdown。
+${PERSONA}
 如果给你的数据里"正在通话"是 true：主人正在和你打语音电话，say 会被直接念给他听。这时 say 要像打电话一样口语化、简短（一般不超过 50 字），不要出现网址、代码、符号和列表，数字和英文名照常说。`;
-  const SPEAK_PROMPT = '你是 CEO Agent，正在和主人打语音电话。下属把一件事的结果交回来了，你要把结果口头转告主人。只输出要说的话本身：口语化，不超过 80 字，先说谁做完了（或没做成），再说最要紧的结论；不要念网址、代码、符号和列表，有文件或链接就说"详细的在通话记录里"。';
+  const SPEAK_PROMPT = PERSONA.replace('这个性格只体现在 say 里；task 是交给下属的任务说明，照常写得清楚、正经，不带脏话。', '') + '\n你是 CEO Agent，正在和主人打语音电话。下属把一件事的结果交回来了，你要把结果口头转告主人。只输出要说的话本身：口语化，不超过 80 字，先说谁做完了（或没做成），再说最要紧的结论；不要念网址、代码、符号和列表，有文件或链接就说"详细的在通话记录里"。';
   // 念之前把网址和排版符号去掉。
   const forSpeech = (s) => String(s || '').replace(/https?:[^ \n）)]+/g, '链接').replace(/[*_#`>|~]/g, '').replace(/\s+/g, ' ').trim().slice(0, 400);
   async function summarize(it) {
@@ -517,9 +521,11 @@ hangup：只有正在通话时才有用。主人表示这通电话可以结束�
         const h = Number(body.hour);
         const hi = h >= 5 && h < 11 ? '早上好' : h >= 11 && h < 13 ? '中午好' : h >= 13 && h < 18 ? '下午好' : '晚上好';
         const todo = (state.todo || []).filter((t) => t && t.text);
-        const text = hi + (ctx.ownerName ? '，' + ctx.ownerName : '') + '。我是 CEO Agent。'
-          + (todo.length ? `现在有 ${todo.length} 件事需要留意，最要紧的是：${String(todo[0].text).replace(/\s+/g, ' ').slice(0, 60)}。` : '现在一切正常，没有告警。')
-          + '有什么要交代的？';
+        const text = ctx.persona ? hi + (ctx.ownerName ? '，' + ctx.ownerName : '') + '。我是 CEO Agent。'
+          + (todo.length ? `现在有 ${todo.length} 件事需要留意，最要紧的是：${String(todo[0].text).replace(/\s+/g, ' ').slice(0, 60)}。` : '现在一切正常，没有告警。') + '有什么要交代的？'
+          // 默认性格（反骨仔）的开场白：嘴欠，但该报的情况照报。
+          : '哟，' + (ctx.ownerName ? ctx.ownerName + '，' : '') + (h >= 0 && h < 5 ? '大半夜的还不睡。' : h < 11 ? '这么早就来了。' : h < 18 ? '又是你。' : '大晚上的又来了。')
+          + (todo.length ? `先说正事，现在有 ${todo.length} 件事要留意，最要紧的是：${String(todo[0].text).replace(/\s+/g, ' ').slice(0, 60)}。` : '放心，现在一切正常，没出什么幺蛾子。') + '说吧，这回又要我干嘛？';
         push({ role: 'ceo', text, hello: true });
         if (ctx.ceoWarm) ctx.ceoWarm(PROMPT);   // 电话接通：让 CEO 的模型先开好等着
         return json(res, 200, { ok: true });
