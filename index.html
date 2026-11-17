@@ -2190,6 +2190,32 @@ async function asrDialog(note, bad) {
       <label class="asr-radio"><input type="checkbox" name="enabled" ${d.enabled || !d.hasKey ? 'checked' : ''}>用豆包语音识别（不勾就用本机的小模型）</label>
       <label class="asr-radio"><input type="checkbox" name="stream" ${d.stream ? 'checked' : ''}>边说边出字（流式识别，需要在火山引擎另外开通“豆包流式语音识别模型2.0”）</label>
       ${d.fastModel ? `<label class="asr-radio"><input type="checkbox" name="fast" ${d.fast ? 'checked' : ''}>通话时用更快的模型接话（${esc(d.fastModel)}，一般一两秒；不勾则用 ${esc(d.mainModel)}，一般六到十秒）</label><p class="dlg-note" style="margin:2px 0 6px 22px">只影响电话里的回答和派活；审批命令、写简报仍然是 ${esc(d.mainModel)}。</p>` : ''}
+      <p class="dlg-note" style="margin:14px 0 6px;font-weight:600">回答的声音</p>
+      <label class="asr-radio"><input type="checkbox" name="mmOn" ${d.mmOn ? 'checked' : ''}>用 MiniMax 的声音回答（优先于下面的豆包声音；它的服务器离你的服务器近，合成更快）</label>
+      <div data-mm>
+        <p class="dlg-note" style="margin:2px 0 6px">怎么拿密钥：登录 platform.minimax.io（国际站）→ 充值 → API Keys 里新建一个，复制到下面。国内站的密钥在这里用不了。密钥只存在你的服务器上，不会显示出来。</p>
+        <label>MiniMax API Key<input type="password" name="mmKey" autocomplete="new-password" placeholder="${d.mmHasKey ? '已经填过（' + esc(d.mmKeyTail) + '），不改就留空' : '粘贴到这里'}"></label>
+        <label>音色<select name="mmVoicePick">
+          <option value="Chinese (Mandarin)_Crisp_Girl">清脆女声（默认）</option>
+          <option value="Chinese (Mandarin)_Laid_BackGirl">慵懒女声</option>
+          <option value="Chinese (Mandarin)_Warm_Bestie">闺蜜</option>
+          <option value="Arrogant_Miss">傲娇大小姐</option>
+          <option value="Chinese (Mandarin)_Sweet_Lady">甜美女声</option>
+          <option value="Chinese (Mandarin)_Mature_Woman">成熟女声</option>
+          <option value="Chinese (Mandarin)_Unrestrained_Young_Man">不羁青年（男声）</option>
+          <option value="Chinese (Mandarin)_Straightforward_Boy">直爽男生（男声）</option>
+          <option value="">其他：自己填音色编号</option></select></label>
+        <label data-other-mm>音色编号（在 MiniMax 文档的 System Voice ID 列表里复制，大小写和空格要一模一样）<input type="text" name="mmVoice" autocomplete="off" value="${esc(d.mmVoice || '')}"></label>
+        <label>型号<select name="mmModel">
+          <option value="speech-2.6-turbo">speech-2.6-turbo（快，默认）</option>
+          <option value="speech-2.6-hd">speech-2.6-hd（音质更好）</option>
+          <option value="speech-2.8-turbo">speech-2.8-turbo</option>
+          <option value="speech-2.8-hd">speech-2.8-hd（最新，音质最好）</option></select></label>
+        <label>语气<select name="mmEmotion">
+          <option value="">让它自己根据内容判断（默认）</option>
+          <option value="happy">开心</option><option value="calm">平静</option><option value="angry">生气</option><option value="disgusted">嫌弃</option><option value="surprised">惊讶</option><option value="sad">难过</option></select></label>
+        ${d.mmError ? `<p class="dlg-bad" style="font-size:13px;margin:8px 0 0">${esc(d.mmError)}，这几分钟先用别的声音。</p>` : ''}
+      </div>
       <label class="asr-radio"><input type="checkbox" name="tts" ${d.tts ? 'checked' : ''}>用豆包的声音回答（需要开通“豆包语音合成模型2.0”；不勾就用本机的声音）</label>
       <label class="asr-radio"><input type="checkbox" name="rt" ${d.rt ? 'checked' : ''}>试用端到端语音通话（接话更快，不到两秒；需要开通“端到端实时语音大模型”）</label>
       <p class="dlg-note" style="margin:2px 0 6px 22px">开着时：听你说话、开口回答的是豆包的实时语音模型，闲聊和问现状由它直接答；你交代的事、叫停、挂电话仍然交给 ${esc(d.mainModel || 'CEO 的主模型')} 在后台决定和办理，它办好后再告诉你。接不通时这通电话自动用原来的方式。随时可以取消勾选换回去。</p>
@@ -2205,9 +2231,11 @@ async function asrDialog(note, bad) {
   });
   const f = $('asrForm');
   f.speakerPick.value = [...f.speakerPick.options].some((o) => o.value === d.speaker) ? d.speaker : '';
-  const sync = () => { for (const el of f.querySelectorAll('[data-mode]')) el.hidden = el.dataset.mode !== f.mode.value; f.querySelector('[data-other-speaker]').hidden = f.speakerPick.value !== ''; };
+  f.mmVoicePick.value = [...f.mmVoicePick.options].some((o) => o.value === d.mmVoice) ? d.mmVoice : '';
+  f.mmModel.value = d.mmModel || 'speech-2.6-turbo'; f.mmEmotion.value = d.mmEmotion || '';
+  const sync = () => { for (const el of f.querySelectorAll('[data-mode]')) el.hidden = el.dataset.mode !== f.mode.value; f.querySelector('[data-other-speaker]').hidden = f.speakerPick.value !== ''; f.querySelector('[data-mm]').hidden = !f.mmOn.checked; f.querySelector('[data-other-mm]').hidden = f.mmVoicePick.value !== ''; };
   sync(); f.addEventListener('change', sync);
-  const save = async () => voiceApi('asr/save', { body: JSON.stringify({ mode: f.mode.value, apiKey: f.apiKey.value, appId: f.appId.value, accessToken: f.accessToken.value, hotwords: f.hotwords.value, enabled: f.enabled.checked, stream: f.stream.checked, tts: f.tts.checked, fast: Boolean(f.fast && f.fast.checked), rt: Boolean(f.rt && f.rt.checked), speaker: f.speakerPick.value || f.speaker.value }) });
+  const save = async () => voiceApi('asr/save', { body: JSON.stringify({ mode: f.mode.value, apiKey: f.apiKey.value, appId: f.appId.value, accessToken: f.accessToken.value, hotwords: f.hotwords.value, enabled: f.enabled.checked, stream: f.stream.checked, tts: f.tts.checked, fast: Boolean(f.fast && f.fast.checked), rt: Boolean(f.rt && f.rt.checked), mmOn: f.mmOn.checked, mmKey: f.mmKey.value, mmVoice: f.mmVoicePick.value || f.mmVoice.value, mmModel: f.mmModel.value, mmEmotion: f.mmEmotion.value, speaker: f.speakerPick.value || f.speaker.value }) });
   const msg = (t, isBad) => { $('asrMsg').textContent = t; $('asrMsg').className = 'asr-msg' + (isBad ? ' dlg-bad' : ''); };
   $('asrClose').addEventListener('click', () => dlgClose(false));
   f.addEventListener('submit', async (e) => { e.preventDefault(); try { const r = await save(); asrDialog(r.enabled ? '已保存，之后的通话用豆包语音识别。' : r.hasKey ? '已保存，目前用本机的小模型。' : '已保存。还没有填密钥，所以用的还是本机的小模型。'); } catch (err) { msg(err.message, true); } });
@@ -2221,8 +2249,11 @@ async function asrDialog(note, bad) {
       const engine = res.headers.get('X-Voice-Engine'), a = new Audio(URL.createObjectURL(await res.blob()));
       a.onended = () => URL.revokeObjectURL(a.src);
       await a.play();
-      if (engine === 'doubao') return msg('正在播放：这是豆包的声音。');
+      if (engine === 'minimax') return msg('正在播放：这是 MiniMax 的声音（合成用了 ' + (Number(res.headers.get('X-Voice-Ms')) / 1000).toFixed(1) + ' 秒）。');
       const d2 = await voiceApi('asr');
+      if (f.mmOn.checked && d2.mmError) return msg('MiniMax 没合成出来：' + d2.mmError + '。现在播放的是' + (engine === 'doubao' ? '豆包' : '本机') + '的声音。', true);
+      if (f.mmOn.checked && !d2.mmHasKey) return msg('还没有填 MiniMax 的密钥，所以用的是' + (engine === 'doubao' ? '豆包' : '本机') + '的声音。', true);
+      if (engine === 'doubao') return msg('正在播放：这是豆包的声音。');
       msg('正在播放：这是本机的声音。' + (d2.ttsError ? d2.ttsError + '。' : f.tts.checked ? '' : '（没有勾选用豆包的声音）'), Boolean(d2.ttsError));
     } catch (err) { msg(err.message, true); }
   });

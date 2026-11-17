@@ -23,7 +23,8 @@ module.exports = function (ctx) {
   const asrReady = () => Boolean(asr.enabled && ctx.asrFile && asrHasKey());
   const saveAsr = () => { fs.writeFileSync(ctx.asrFile + '.tmp', JSON.stringify(asr), { mode: 0o600 }); fs.renameSync(ctx.asrFile + '.tmp', ctx.asrFile); };
   const tail = (v) => (v ? '…' + String(v).slice(-4) : '');
-  const asrView = () => ({ enabled: asr.enabled, mode: asr.mode, hasKey: asrHasKey(), keyTail: asr.mode === 'new' ? tail(asr.apiKey) : tail(asr.accessToken), appId: asr.mode === 'old' ? asr.appId : '', hotwords: asr.hotwords, stream: asr.stream !== false, tts: asr.tts !== false, speaker: asr.speaker, fast: Boolean(asr.fast), rt: Boolean(asr.rt), fastModel: ctx.fastModel || '', mainModel: ctx.mainModel || '', ...asrState });
+  const MM_VOICE = 'Chinese (Mandarin)_Crisp_Girl', MM_MODEL = 'speech-2.6-turbo';
+  const asrView = () => ({ enabled: asr.enabled, mode: asr.mode, hasKey: asrHasKey(), keyTail: asr.mode === 'new' ? tail(asr.apiKey) : tail(asr.accessToken), appId: asr.mode === 'old' ? asr.appId : '', hotwords: asr.hotwords, stream: asr.stream !== false, tts: asr.tts !== false, speaker: asr.speaker, fast: Boolean(asr.fast), rt: Boolean(asr.rt), mmOn: Boolean(asr.mmOn), mmHasKey: Boolean(asr.mmKey), mmKeyTail: tail(asr.mmKey), mmVoice: asr.mmVoice || MM_VOICE, mmModel: asr.mmModel || MM_MODEL, mmEmotion: asr.mmEmotion || '', mmError: asrState.mmError || '', fastModel: ctx.fastModel || '', mainModel: ctx.mainModel || '', ...asrState });
   // 火山引擎"大模型录音文件极速版识别"：一次请求直接返回文字。自定义词随请求一起带过去。
   async function doubao(audio, format, useWords = true) {
     const request = { model_name: 'bigmodel', enable_itn: true, enable_punc: true };
@@ -49,6 +50,26 @@ module.exports = function (ctx) {
   }
   // ---- 说话的声音：豆包语音合成 2.0 ----
   // 把一句话交给豆包合成，拿回一段 mp3。豆包是一小块一小块往回传的（每块是一段 JSON，里面是 base64 的声音），这里全部收齐再拼起来。
+  // MiniMax 的语音合成：把一句话变成 mp3。走美西入口（离这台服务器最近）；密钥只在这里用，不写进日志。
+  const mmReady = () => Boolean(asr.mmOn && asr.mmKey && ctx.asrFile && Date.now() >= (asrState.mmDownUntil || 0));
+  async function minimaxTts(text) {
+    const res = await fetch('https://api-uw.minimax.io/v1/t2a_v2', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + asr.mmKey },
+      body: JSON.stringify({
+        model: asr.mmModel || MM_MODEL, text, stream: false, language_boost: 'Chinese', output_format: 'hex',
+        voice_setting: { voice_id: asr.mmVoice || MM_VOICE, speed: 1, vol: 1, pitch: 0, ...(asr.mmEmotion ? { emotion: asr.mmEmotion } : {}) },
+        audio_setting: { sample_rate: 24000, bitrate: 128000, format: 'mp3', channel: 1 },
+      }),
+      signal: AbortSignal.timeout(20000),
+    });
+    const j = await res.json().catch(() => ({}));
+    const code = j.base_resp ? j.base_resp.status_code : res.status;
+    if (!res.ok || code !== 0 || !j.data || !j.data.audio) {
+      const why = { 1004: '密钥不对', 2049: '密钥不对', 1008: '账户余额不足', 2053: '账户余额不足', 1002: '请求太频繁', 1039: '请求太频繁', 2054: '没有这个音色', 20132: '没有这个音色', 2042: '这个账号用不了这个音色', 2043: '这个型号不支持这个音色', 2022: '没有这个型号' }[code];
+      throw new Error('MiniMax 返回 ' + code + '：' + (why || String((j.base_resp && j.base_resp.status_msg) || '没有返回声音').replace(/\s+/g, ' ').slice(0, 120)));
+    }
+    return Buffer.from(j.data.audio, 'hex');
+  }
   const ttsReady = () => Boolean(asr.enabled && asr.tts !== false && ctx.asrFile && asrHasKey() && Date.now() >= asrState.ttsDownUntil);
   // 把连在一起的一串 JSON 拆开：可能是一行一个，也可能首尾相接没有换行。
   function splitJson(text) {
@@ -666,6 +687,13 @@ ${PERSONA}
         asr.tts = body.tts !== false;
         asr.fast = Boolean(body.fast);
         asr.rt = Boolean(body.rt);
+        // MiniMax 语音合成：密钥栏留空表示不改原来的；没有密钥就开不了
+        if (str(body.mmKey)) asr.mmKey = String(body.mmKey).trim().slice(0, 2000);
+        if (/^[\w .()\-]{2,80}$/.test(String(body.mmVoice || '').trim())) asr.mmVoice = String(body.mmVoice).trim();
+        if (['speech-2.6-turbo', 'speech-2.6-hd', 'speech-2.8-turbo', 'speech-2.8-hd'].includes(body.mmModel)) asr.mmModel = body.mmModel;
+        asr.mmEmotion = ['happy', 'sad', 'angry', 'fearful', 'disgusted', 'surprised', 'calm', 'fluent'].includes(body.mmEmotion) ? body.mmEmotion : '';
+        asr.mmOn = Boolean(body.mmOn) && Boolean(asr.mmKey);
+        asrState.mmError = ''; asrState.mmDownUntil = 0;
         if (/^[\w-]{3,80}$/.test(String(body.speaker || '').trim())) asr.speaker = String(body.speaker).trim();
         asrState.ttsError = ''; asrState.ttsDownUntil = 0;
         asrState.streamWords = true; asrState.streamDownUntil = 0;
@@ -711,6 +739,18 @@ ${PERSONA}
         const body = JSON.parse((await readRaw(req, 20000)).toString('utf8') || '{}');
         const text = forSpeech(body.text);
         if (!text) return json(res, 400, { error: '没有要念的内容' });
+        if (mmReady()) {
+          try {
+            const t0 = Date.now(), mp3 = await minimaxTts(text);
+            asrState.mmOk = Date.now(); asrState.mmError = '';
+            res.writeHead(200, { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store', 'X-Voice-Engine': 'minimax', 'X-Voice-Ms': String(Date.now() - t0) });
+            return res.end(mp3);
+          } catch (e) {
+            asrState.mmError = String(e.message || e).slice(0, 200);
+            asrState.mmDownUntil = Date.now() + 3 * 60000;   // 三分钟内先用别的声音，免得每句话都白等
+            console.log('[语音合成] ' + asrState.mmError + '；这几分钟先用' + (ttsReady() ? '豆包' : '本机') + '的声音');
+          }
+        }
         if (ttsReady()) {
           try {
             const mp3 = await doubaoTts(text);
