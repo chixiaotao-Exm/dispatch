@@ -374,9 +374,145 @@ body.term-open{padding-bottom:var(--term-h,56vh)}
 .card,.row{transition:box-shadow .35s}
 .hit{box-shadow:0 0 0 1px var(--pc),0 0 22px 2px var(--pc)}
 @media (prefers-reduced-motion: reduce){.card,.row,.v,.bar::before,.bar::after,.rows::before,.row::before{animation:none!important}}
+
+/* ================= 科技感主题（车机导航风格）=================
+   整页固定深色；背景是一张向远处倾斜的夜间导航地图：路网、发光的规划路线、地平线上的光。
+   这一段放在样式表最后，只改外观，不改任何布局和功能。 */
+:root{
+  color-scheme:dark;
+  --bg:#040a14;--card:#0a1728;--line:#1c3552;--text:#e6f2ff;--sub:#8fb2d4;--mute:#56738f;
+  --ok:#2ee6a6;--warn:#ffb020;--bad:#ff4d6d;--accent:#2de2ff;--glow2:#7df3ff;
+  --c-boss:#ffb547;--c-site:#4fe3ff;--c-srv:#b48cff;--c-relay:#ff7ab8;--c-music:#6dffb3;--c-pojia:#ff6b4a;--c-qiye:#cbd5e1;
+  --c-store:#c6f24e;--c-auto:#e879f9;--c-bot:#22d3ee;--c-agent:#ff9a4d;
+  --hud:"Bahnschrift","DIN Alternate","DIN Condensed","Segoe UI",system-ui,"Microsoft YaHei",sans-serif;
+}
+html{background:var(--bg)}
+body{background:transparent}
+
+/* ---- 背景：倾斜的导航地图 ---- */
+.navbg{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none;
+  background:radial-gradient(120% 60% at 50% 30%,#0f2a4d 0%,#071426 45%,var(--bg) 78%)}
+/* 地面：向远处倾斜的一整块，上面是网格和路网 */
+.navbg .plane{position:absolute;left:-40%;right:-40%;bottom:0;aspect-ratio:1/2;transform-origin:50% 100%;transform:perspective(112vh) rotateX(60deg)}
+.navbg .grid{position:absolute;inset:-160px 0 0 0;
+  background:
+    linear-gradient(rgba(45,226,255,.16) 1.5px,transparent 1.5px) 0 0/160px 160px,
+    linear-gradient(90deg,rgba(45,226,255,.16) 1.5px,transparent 1.5px) 0 0/160px 160px,
+    linear-gradient(rgba(45,226,255,.055) 1px,transparent 1px) 0 0/40px 40px,
+    linear-gradient(90deg,rgba(45,226,255,.055) 1px,transparent 1px) 0 0/40px 40px;
+  animation:navDrive 9s linear infinite}
+@keyframes navDrive{to{transform:translateY(160px)}}
+.navbg svg{position:absolute;left:0;bottom:0;width:100%;height:100%}
+.navbg .road{fill:none;stroke:#285a8f;stroke-linecap:round;stroke-linejoin:round;opacity:.55}
+.navbg .road.minor{stroke:#1f4873;opacity:.5}
+.navbg .block{fill:rgba(45,226,255,.035);stroke:rgba(90,170,230,.22);stroke-width:2}
+.navbg .route-halo{fill:none;stroke:#2de2ff;stroke-width:34;stroke-linecap:round;stroke-linejoin:round;opacity:.13}
+.navbg .route{fill:none;stroke:#2de2ff;stroke-width:13;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 10px #2de2ff)}
+.navbg .route-flow{fill:none;stroke:#eaffff;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:6 54;animation:navFlow 2.4s linear infinite}
+@keyframes navFlow{to{stroke-dashoffset:-60}}
+.navbg .pin{fill:#ffb547;filter:drop-shadow(0 0 12px #ffb547)}
+.navbg .ping{fill:none;stroke:#ffb547;stroke-width:4;transform-box:fill-box;transform-origin:center;animation:navPing 2.6s ease-out infinite}
+@keyframes navPing{from{transform:scale(.5);opacity:.9}to{transform:scale(3.2);opacity:0}}
+/* 远处的雾和地平线上的光，把地图上沿收掉；再压一层暗角，保证前面的文字清楚 */
+.navbg .fog{position:absolute;inset:0;
+  background:
+    linear-gradient(180deg,var(--bg) 0%,var(--bg) 44%,rgba(4,10,20,.88) 49%,rgba(4,10,20,0) 66%),
+    radial-gradient(64% 12% at 50% 48%,rgba(45,226,255,.3),transparent 70%),
+    radial-gradient(130% 95% at 50% 70%,transparent 50%,rgba(2,6,13,.8) 100%)}
+.navbg .horizon{position:absolute;left:8%;right:8%;top:48%;height:1px;background:linear-gradient(90deg,transparent,rgba(125,243,255,.75),transparent);box-shadow:0 0 18px 2px rgba(45,226,255,.35)}
+@media (prefers-reduced-motion:reduce){.navbg .grid,.navbg .route-flow,.navbg .ping{animation:none}}
+
+/* ---- 顶栏：像仪表盘的抬头 ---- */
+.top{position:relative;border-bottom:0;padding-bottom:14px}
+.top::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:linear-gradient(90deg,var(--accent),rgba(45,226,255,.18) 30%,rgba(45,226,255,.06) 70%,transparent)}
+.top h1{font-family:var(--hud);font-size:19px;letter-spacing:.18em;font-weight:600;color:#fff;text-shadow:0 0 16px rgba(45,226,255,.65);display:flex;align-items:center;gap:10px}
+.top h1::before{content:"";width:9px;height:9px;transform:rotate(45deg);background:var(--accent);box-shadow:0 0 12px var(--accent)}
+.top .sub{letter-spacing:.12em;color:var(--mute)}
+.top .right{font-family:var(--hud);letter-spacing:.04em}
+#clock{color:var(--text);font-variant-numeric:tabular-nums}
+
+/* ---- 卡片：深色面板 + 四角的小标记 + 悬浮的光 ---- */
+.card,.row{border-radius:6px;
+  background:linear-gradient(165deg,#0e2038 0%,#0a1728 55%,#07111f 100%) padding-box,
+    conic-gradient(from var(--a),var(--line) 0 60%,var(--glow) 78%,var(--glow2) 88%,var(--line) 96%) border-box;
+  box-shadow:0 10px 30px rgba(0,0,0,.5),inset 0 1px 0 rgba(160,220,255,.07)}
+.card{--tk:color-mix(in srgb,var(--glow) 75%,transparent);
+  background:
+    linear-gradient(var(--tk),var(--tk)) left 5px top 5px/11px 1.5px no-repeat padding-box,
+    linear-gradient(var(--tk),var(--tk)) left 5px top 5px/1.5px 11px no-repeat padding-box,
+    linear-gradient(var(--tk),var(--tk)) right 5px top 5px/11px 1.5px no-repeat padding-box,
+    linear-gradient(var(--tk),var(--tk)) right 5px top 5px/1.5px 11px no-repeat padding-box,
+    linear-gradient(var(--tk),var(--tk)) left 5px bottom 5px/11px 1.5px no-repeat padding-box,
+    linear-gradient(var(--tk),var(--tk)) left 5px bottom 5px/1.5px 11px no-repeat padding-box,
+    linear-gradient(var(--tk),var(--tk)) right 5px bottom 5px/11px 1.5px no-repeat padding-box,
+    linear-gradient(var(--tk),var(--tk)) right 5px bottom 5px/1.5px 11px no-repeat padding-box,
+    linear-gradient(165deg,#10243f 0%,#0a1728 55%,#07111f 100%) padding-box,
+    conic-gradient(from var(--a),var(--line) 0 60%,var(--glow) 78%,var(--glow2) 88%,var(--line) 96%) border-box;
+  padding:14px 16px}
+.row{border-radius:4px;box-shadow:0 6px 18px rgba(0,0,0,.4),inset 0 1px 0 rgba(160,220,255,.05)}
+.card.hit,.row.hit{box-shadow:0 0 0 1px var(--pc),0 0 22px 2px var(--pc)}
+.head{font-size:12px;letter-spacing:.14em;color:var(--sub)}
+.card.ceo .head strong,.card.line .head strong,.ceolog .head strong,.usage .head strong{letter-spacing:.14em}
+.big{font-family:var(--hud);font-size:30px;font-weight:600;letter-spacing:.02em;line-height:1.25;color:#fff;font-variant-numeric:tabular-nums;
+  text-shadow:0 0 22px color-mix(in srgb,var(--glow) 55%,transparent)}
+.tag{letter-spacing:.1em}
+.row .l1 .ms,.ip,.tm,#verText{font-family:var(--hud);letter-spacing:.03em}
+.ip,code{background:rgba(45,226,255,.08);border:1px solid rgba(45,226,255,.14);color:var(--sub)}
+
+/* ---- 状态灯会发光 ---- */
+.dot{box-shadow:0 0 0 2px rgba(255,255,255,.03)}
+.dot.ok{box-shadow:0 0 8px 1px color-mix(in srgb,var(--ok) 70%,transparent)}
+.dot.warn{box-shadow:0 0 8px 1px color-mix(in srgb,var(--warn) 70%,transparent)}
+.dot.bad{box-shadow:0 0 10px 2px color-mix(in srgb,var(--bad) 75%,transparent)}
+.hist i{box-shadow:0 0 5px color-mix(in srgb,var(--ok) 45%,transparent)}
+.hist i.d{box-shadow:0 0 5px color-mix(in srgb,var(--bad) 55%,transparent)}
+.meter{background:rgba(45,226,255,.09);height:5px}
+.meter b{background:linear-gradient(90deg,color-mix(in srgb,var(--accent) 55%,transparent),var(--accent));box-shadow:0 0 8px var(--accent)}
+
+/* ---- 按钮和头像 ---- */
+button,.btn{border-radius:4px;letter-spacing:.04em;transition:box-shadow .15s,border-color .15s,background .15s}
+button:hover,.btn:hover{box-shadow:0 0 12px -2px var(--accent)}
+.cols .btn:hover{box-shadow:0 0 12px -2px var(--glow)}
+#refresh{border-color:rgba(45,226,255,.45);color:var(--accent)}
+.avatar{border-radius:6px;background:linear-gradient(135deg,#ffcf7a,#ff9a2e);color:#241300;box-shadow:0 0 16px rgba(255,181,71,.45)}
+.pill{border-radius:4px;font-family:var(--hud);letter-spacing:.06em}
+.voice-open{border-radius:4px;border-color:rgba(46,230,166,.55);background:rgba(46,230,166,.06)}
+.voice-open.on{background:rgba(255,77,109,.08)}
+.vm .bub{border-radius:6px;background:rgba(10,23,40,.6)}
+
+/* ---- 底部面板、对话框 ---- */
+.term{background:#050c18;border-top:1px solid var(--accent);box-shadow:0 -1px 24px rgba(45,226,255,.28),0 -14px 44px rgba(0,0,0,.6)}
+.term-bar{background:linear-gradient(180deg,#0e2038,#0a1728)}
+.term iframe{background:#050c18}
+.todo-back{background:rgba(2,6,13,.66);backdrop-filter:blur(3px)}
+.todo-pop,.dlg{border-radius:8px;border-color:rgba(45,226,255,.35);background:linear-gradient(165deg,#10243f,#081322);box-shadow:0 0 0 1px rgba(45,226,255,.06),0 0 40px rgba(45,226,255,.14),0 24px 70px rgba(0,0,0,.6)}
+.dlg h3,.todo-pop h3{letter-spacing:.1em}
+.dlg-ver{font-family:var(--hud)}
+.dlg-notes{border-radius:4px;background:rgba(45,226,255,.05)}
+.dlg-btn{border-radius:4px}
+.ops-alert{border-radius:6px}
+::selection{background:rgba(45,226,255,.3)}
+*{scrollbar-color:#24507f transparent}
 </style>
 </head>
 <body>
+<!-- 背景：一张向远处倾斜的夜间导航地图（纯装饰，不响应点击；由 gen-map 脚本生成） -->
+<div class="navbg" aria-hidden="true">
+  <div class="plane">
+    <div class="grid"></div>
+    <svg viewBox="0 0 1800 3600">
+      <g class="block"><rect x="209" y="3262" width="163" height="131" rx="6"/><rect x="491" y="3237" width="342" height="172" rx="6"/><rect x="1436" y="3276" width="151" height="126" rx="6"/><rect x="254" y="2583" width="107" height="158" rx="6"/><rect x="1429" y="2547" width="102" height="156" rx="6"/><rect x="223" y="2301" width="156" height="126" rx="6"/><rect x="1100" y="2322" width="185" height="129" rx="6"/><rect x="1436" y="2288" width="196" height="154" rx="6"/><rect x="594" y="1984" width="216" height="184" rx="6"/><rect x="1003" y="2038" width="330" height="135" rx="6"/><rect x="1461" y="2007" width="113" height="182" rx="6"/><rect x="257" y="1422" width="98" height="103" rx="6"/><rect x="1035" y="1410" width="184" height="125" rx="6"/><rect x="1428" y="1361" width="100" height="173" rx="6"/><rect x="628" y="1108" width="186" height="148" rx="6"/><rect x="947" y="1139" width="274" height="114" rx="6"/><rect x="234" y="824" width="136" height="132" rx="6"/><rect x="964" y="865" width="257" height="119" rx="6"/><rect x="226" y="503" width="154" height="196" rx="6"/><rect x="572" y="194" width="250" height="191" rx="6"/><rect x="1045" y="207" width="259" height="127" rx="6"/></g>
+      <g class="road minor" stroke-width="10"><path d="M-60 3126 L159 3138 L426 3123 L909 3145 L1396 3119 L1666 3149 L1860 3140"/><path d="M-60 2507 L171 2501 L425 2516 L915 2489 L1361 2479 L1676 2501 L1860 2515"/><path d="M-60 1934 L167 1953 L434 1945 L913 1915 L1362 1932 L1677 1942 L1860 1943"/><path d="M-60 1325 L140 1320 L434 1297 L896 1313 L1380 1323 L1699 1308 L1860 1308"/><path d="M-60 751 L148 752 L433 768 L909 769 L1405 748 L1658 771 L1860 757"/><path d="M-60 98 L166 113 L444 117 L901 122 L1392 86 L1703 112 L1860 103"/><path d="M151 3660 L129 3460 L155 3137 L163 2805 L157 2498 L160 2236 L146 1932 L139 1600 L137 1312 L139 1042 L135 754 L166 435 L130 108 L148 -60"/><path d="M1685 3660 L1699 3460 L1662 3137 L1699 2805 L1693 2498 L1695 2236 L1694 1932 L1671 1600 L1664 1312 L1681 1042 L1696 754 L1660 435 L1670 108 L1675 -60"/></g>
+      <g class="road" stroke-width="22"><path d="M-60 3460 L142 3448 L426 3477 L888 3472 L1388 3479 L1673 3477 L1860 3467"/><path d="M-60 2806 L132 2786 L430 2784 L900 2785 L1372 2825 L1655 2785 L1860 2822"/><path d="M-60 2233 L166 2241 L433 2229 L894 2214 L1368 2239 L1687 2239 L1860 2252"/><path d="M-60 1608 L142 1607 L441 1581 L886 1596 L1403 1609 L1681 1600 L1860 1601"/><path d="M-60 1054 L173 1060 L455 1030 L898 1035 L1355 1062 L1701 1038 L1860 1043"/><path d="M-60 445 L140 419 L431 414 L895 444 L1387 423 L1659 447 L1860 442"/><path d="M421 3660 L438 3460 L417 3137 L448 2805 L435 2498 L424 2236 L434 1932 L448 1600 L425 1312 L426 1042 L445 754 L422 435 L447 108 L440 -60"/><path d="M1372 3660 L1383 3460 L1362 3137 L1370 2805 L1365 2498 L1391 2236 L1383 1932 L1375 1600 L1380 1312 L1379 1042 L1359 754 L1367 435 L1372 108 L1372 -60"/></g>
+      <path class="route-halo" d="M909 3660 L926 3460 L918 3137 L882 2805 L895 2498 L896 2236 L890 1932 L879 1600 L897 1312 L871 1042 L890 754 L923 435 L920 108"/>
+      <path class="route" d="M909 3660 L926 3460 L918 3137 L882 2805 L895 2498 L896 2236 L890 1932 L879 1600 L897 1312 L871 1042 L890 754 L923 435 L920 108"/>
+      <path class="route-flow" d="M909 3660 L926 3460 L918 3137 L882 2805 L895 2498 L896 2236 L890 1932 L879 1600 L897 1312 L871 1042 L890 754 L923 435 L920 108"/>
+      <circle class="ping" cx="920" cy="108" r="26"/><circle class="pin" cx="920" cy="108" r="18"/>
+    </svg>
+  </div>
+  <div class="fog"></div>
+  <div class="horizon"></div>
+</div>
 <div class="wrap" id="wrap">
   <div class="top">
     <h1>调度台</h1>
