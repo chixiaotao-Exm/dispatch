@@ -2028,7 +2028,9 @@ function callFrame(input, rate) {
   if (rms > thr) call.lastLoud = now;
   // 停多久算说完：认出来的话已经是完整的一句（末尾是句号、问号）时停 1.5 秒；话还悬在半截时停 2.4 秒，给你留出想一想的时间。
   // 一段话最长 3 分钟。（以前是 0.85 / 1.3 秒，长话说到一半稍一停顿就被当成说完了。）
-  if (now - call.lastLoud > (call.st ? (call.st.whole ? 1500 : 2400) : 1500) || now - call.startAt > 180000) {
+  // 只说了很短的一句（不到 2.5 秒，比如"确认""换一个"）多半就是说完了：停 1.1 秒就收，不让你干等。
+  const brief = call.lastLoud - call.startAt < 2500;
+  if (now - call.lastLoud > (brief ? 1100 : call.st ? (call.st.whole ? 1500 : 2400) : 1500) || now - call.startAt > 180000) {
     const frames = call.rec, spoke = call.lastLoud - call.startAt;
     call.rec = []; call.speaking = false; call.loudMs = 0;
     if (spoke < 200) { streamDrop(); $('voiceStateText').textContent = '正在听，直接说话就行'; return callPump(); }

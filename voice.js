@@ -287,7 +287,13 @@ ${PERSONA}
       try {
         r = await ctx.ceoStream(PROMPT, JSON.stringify(input), (buf) => {
           const a = /"action"\s*:\s*"(\w+)"/.exec(buf);
-          if (!a || (a[1] !== 'reply' && a[1] !== 'agent')) return;
+          if (!a || (a[1] !== 'reply' && a[1] !== 'agent' && a[1] !== 'bot')) return;
+          if (a[1] === 'bot') {
+            // 交给 Bot：名字写在 say 前面。这个 Bot 确实有、而且现在空闲，才提前念；它正忙着（要先叫停或者要回绝）就等想完再说。
+            const n = /"bot"\s*:\s*"([^"]*)"/.exec(buf), want = n ? n[1].trim().toLowerCase() : '';
+            const hit = want && (botList.find((b) => b.name.toLowerCase() === want) || botList.find((b) => b.name.toLowerCase().includes(want)));
+            if (!hit || hit.running) return;
+          }
           const p = partialSay(buf);
           if (!p.trim() || p === streamed) return;
           if (!firstAt) firstAt = Date.now();
