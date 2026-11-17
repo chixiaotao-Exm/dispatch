@@ -24,7 +24,7 @@ module.exports = function (ctx) {
   const saveAsr = () => { fs.writeFileSync(ctx.asrFile + '.tmp', JSON.stringify(asr), { mode: 0o600 }); fs.renameSync(ctx.asrFile + '.tmp', ctx.asrFile); };
   const tail = (v) => (v ? '…' + String(v).slice(-4) : '');
   const MM_VOICE = 'Chinese (Mandarin)_Crisp_Girl', MM_MODEL = 'speech-2.6-turbo';
-  const asrView = () => ({ enabled: asr.enabled, mode: asr.mode, hasKey: asrHasKey(), keyTail: asr.mode === 'new' ? tail(asr.apiKey) : tail(asr.accessToken), appId: asr.mode === 'old' ? asr.appId : '', hotwords: asr.hotwords, stream: asr.stream !== false, tts: asr.tts !== false, speaker: asr.speaker, fast: Boolean(asr.fast), rt: Boolean(asr.rt), mmOn: Boolean(asr.mmOn), mmHasKey: Boolean(asr.mmKey), mmKeyTail: tail(asr.mmKey), mmVoice: asr.mmVoice || MM_VOICE, mmModel: asr.mmModel || MM_MODEL, mmEmotion: asr.mmEmotion || '', mmError: asrState.mmError || '', fastModel: ctx.fastModel || '', mainModel: ctx.mainModel || '', ...asrState });
+  const asrView = () => ({ enabled: asr.enabled, mode: asr.mode, hasKey: asrHasKey(), keyTail: asr.mode === 'new' ? tail(asr.apiKey) : tail(asr.accessToken), appId: asr.mode === 'old' ? asr.appId : '', hotwords: asr.hotwords, stream: asr.stream !== false, tts: asr.tts !== false, speaker: asr.speaker, fast: Boolean(asr.fast), rt: Boolean(asr.rt), qwOn: Boolean(asr.qwOn), qwHasKey: Boolean(asr.qwKey), qwKeyTail: tail(asr.qwKey), qwRegion: asr.qwRegion === 'cn' ? 'cn' : 'intl', qwError: asrState.qwError || '', mmOn: Boolean(asr.mmOn), mmHasKey: Boolean(asr.mmKey), mmKeyTail: tail(asr.mmKey), mmVoice: asr.mmVoice || MM_VOICE, mmModel: asr.mmModel || MM_MODEL, mmEmotion: asr.mmEmotion || '', mmError: asrState.mmError || '', fastModel: ctx.fastModel || '', mainModel: ctx.mainModel || '', ...asrState });
   // 火山引擎"大模型录音文件极速版识别"：一次请求直接返回文字。自定义词随请求一起带过去。
   async function doubao(audio, format, useWords = true) {
     const request = { model_name: 'bigmodel', enable_itn: true, enable_punc: true };
@@ -109,6 +109,73 @@ module.exports = function (ctx) {
   // ---- 流式识别（边说边出字）----
   // 页面把正在说的话每 0.2 秒传来一小段，这里通过一条和豆包之间的长连接转过去，豆包一边听一边把认出来的字传回来，
   // 并且由它来判断这句话说完了没有。一句话用一条连接，说完就断开；停顿的时候不传任何声音。
+  // ---- 阿里 Qwen3-ASR（通义千问语音识别）----
+  // 国际站（新加坡）和国内站（北京）是两套入口、两套密钥。自定义词作为“背景文字”带过去，它会往这些词上靠。
+  const qwReady = () => Boolean(asr.qwOn && asr.qwKey && ctx.asrFile && Date.now() >= (asrState.qwDownUntil || 0));
+  const qwHost = () => (asr.qwRegion === 'cn' ? 'dashscope.aliyuncs.com' : 'dashscope-intl.aliyuncs.com');
+  const qwWords = () => (asr.hotwords.length ? '这段对话里可能出现的词：' + asr.hotwords.join('、') + '。' : '');
+  const qwFail = (msg) => { asrState.qwError = String(msg).slice(0, 200); asrState.qwDownUntil = Date.now() + 3 * 60000; console.log('[语音识别] Qwen3-ASR 没成：' + asrState.qwError + '；这几分钟先用' + (asrReady() ? '豆包' : '本机模型')); };
+  // 整句识别：一段录音送过去，直接拿回文字。
+  async function qwenFlash(audio, format) {
+    const messages = [];
+    if (qwWords()) messages.push({ role: 'system', content: [{ text: qwWords() }] });
+    messages.push({ role: 'user', content: [{ audio: 'data:audio/' + (format === 'mp3' ? 'mpeg' : 'wav') + ';base64,' + audio.toString('base64') }] });
+    const res = await fetch('https://' + qwHost() + '/api/v1/services/aigc/multimodal-generation/generation', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + asr.qwKey },
+      body: JSON.stringify({ model: 'qwen3-asr-flash', input: { messages }, parameters: { asr_options: { language: 'zh', enable_itn: true } } }),
+      signal: AbortSignal.timeout(20000),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error('Qwen 返回 ' + res.status + '：' + (res.status === 401 || res.status === 403 ? '密钥不对（国际站和国内站的密钥不通用，看看选对了没有）' : String(j.message || j.code || '').replace(/\s+/g, ' ').slice(0, 120)));
+    const c = (((j.output || {}).choices || [])[0] || {}).message;
+    const content = c ? c.content : '';
+    return String(Array.isArray(content) ? content.map((x) => (x && x.text) || '').join('') : content || '').trim();
+  }
+  // 流式识别：边说边出字。它自己会按停顿把话切成一段一段（每段出一个定稿），这里把定稿的各段和正在说的那一段拼成到目前为止的全文。
+  function openQwen(sid) {
+    const s = { qw: true, name: 'Qwen3-ASR 流式', ws: null, open: false, pending: [], text: '', definite: false, final: false, error: '', at: Date.now(), born: Date.now(), waiters: [], done_: [], cur: '' };
+    streams.set(sid, s);
+    const wake = () => { for (const w of s.waiters.splice(0)) w(); };
+    const ev = (o) => JSON.stringify({ event_id: 'e' + crypto.randomUUID().slice(0, 12), ...o });
+    let opened = false;
+    const fail = (msg) => {
+      if (s.error || s.final || s.done) return;
+      s.error = msg; qwFail(msg);
+      try { s.ws.close(); } catch (e) { /* 已经断了 */ }
+      wake();
+    };
+    s.fail = fail;
+    const ws = new WebSocket('wss://' + qwHost() + '/api-ws/v1/realtime?model=qwen3-asr-flash-realtime', { headers: { Authorization: 'Bearer ' + asr.qwKey, 'OpenAI-Beta': 'realtime=v1' } });
+    s.ws = ws;
+    ws.onopen = () => {
+      opened = true; s.open = true;
+      const tr = { language: 'zh' };
+      if (qwWords()) tr.corpus = { text: qwWords() };
+      ws.send(ev({ type: 'session.update', session: { modalities: ['text'], input_audio_format: 'pcm', sample_rate: 16000, input_audio_transcription: tr, turn_detection: { type: 'server_vad', threshold: 0.2, silence_duration_ms: 800 } } }));
+      for (const b of s.pending.splice(0)) ws.send(b);
+    };
+    ws.onmessage = (e) => {
+      let j;
+      try { j = JSON.parse(typeof e.data === 'string' ? e.data : Buffer.from(e.data).toString('utf8')); } catch (err) { return; }
+      if (j.type === 'error') return fail(String((j.error && (j.error.message || j.error.code)) || '出错').replace(/\s+/g, ' ').slice(0, 160));
+      if (j.type === 'conversation.item.input_audio_transcription.text') s.cur = String(j.text || '') + String(j.stash || '');
+      else if (j.type === 'conversation.item.input_audio_transcription.completed') { if (j.transcript) s.done_.push(String(j.transcript)); s.cur = ''; s.definite = true; }
+      else if (j.type === 'session.finished') s.final = true;
+      else return;
+      s.text = (s.done_.join('') + s.cur).trim();
+      wake();
+    };
+    ws.onerror = () => fail(opened ? '和阿里的连接断了' : '连不上 Qwen3-ASR：密钥不对，或者选错了国际站 / 国内站');
+    ws.onclose = () => { if (opened && !s.error) s.final = true; wake(); };
+    // 送一段声音；last 表示这句话说完了：告诉它收尾，等它把最后一段定稿
+    s.feed = (pcm, last) => {
+      const out = [];
+      for (let o = 0; o < pcm.length; o += 32000) out.push(ev({ type: 'input_audio_buffer.append', audio: pcm.subarray(o, o + 32000).toString('base64') }));
+      if (last) out.push(ev({ type: 'session.finish' }));
+      for (const b of out) { if (s.open) { try { ws.send(b); } catch (e) { fail('和阿里的连接断了'); } } else s.pending.push(b); }
+    };
+    return s;
+  }
   // 豆包的流式接口用的是它自己的二进制格式：4 个字节的头，接着是内容的长度，再接着是压缩过的内容。
   const authHeaders = () => (asr.mode === 'new' ? { 'X-Api-Key': asr.apiKey } : { 'X-Api-App-Key': asr.appId, 'X-Api-Access-Key': asr.accessToken });
   const streams = new Map();
@@ -194,18 +261,21 @@ module.exports = function (ctx) {
   setInterval(() => { for (const [sid, s] of streams) if (Date.now() - s.at > 20000) endStream(sid); }, 10000).unref();
   // 往一条流里送一段声音；last 表示这句话说完了，等豆包给出最后的结果（最多等几秒）。
   async function pushStream(sid, pcm, last, format) {
-    const s = streams.get(sid) || openStream(sid, format);
+    const s = streams.get(sid) || (qwReady() && (!format || format === 'pcm') ? openQwen(sid) : openStream(sid, format));
     s.at = Date.now();
     if (!s.error && !s.final && (pcm.length || last)) {
-      const b = frame(2, last ? 2 : 0, false, pcm);
-      if (s.open) { try { s.ws.send(b); } catch (e) { s.fail('和豆包的连接断了'); } } else s.pending.push(b);
+      if (s.qw) s.feed(pcm, last);
+      else {
+        const b = frame(2, last ? 2 : 0, false, pcm);
+        if (s.open) { try { s.ws.send(b); } catch (e) { s.fail('和豆包的连接断了'); } } else s.pending.push(b);
+      }
     }
     if (last && !s.error && !s.final) await new Promise((r) => { s.waiters.push(r); setTimeout(r, 5000); });
     const out = { text: s.text, definite: s.definite, final: s.final, error: s.error };
     // 豆包认为"一个句子完了"（definite）不等于主人把话说完了：长话里句子之间本来就有停顿。所以这里不结束，交给页面按停顿时间决定。
     if (last || s.error || s.final) {
-      if (!s.error) { asrState.lastOk = Date.now(); asrState.lastError = ''; }
-      if (!String(sid).startsWith('test-')) console.log(`[语音识别] 流式一句：${s.res === 'volc.seedasr.sauc.duration' ? '豆包流式识别 2.0' : s.res === 'volc.bigasr.sauc.duration' ? '豆包流式识别 1.0' : '没连上'}，${s.error ? '出错' : s.definite && !last ? '豆包判断说完' : '本地等够后收尾'}，认出 ${s.text.length} 个字，用时 ${((Date.now() - s.born) / 1000).toFixed(1)} 秒`);
+      if (!s.error) { asrState.lastOk = Date.now(); asrState.lastError = ''; if (s.qw) asrState.qwError = ''; }
+      if (!String(sid).startsWith('test-')) console.log(`[语音识别] 流式一句：${s.name ? s.name : s.res === 'volc.seedasr.sauc.duration' ? '豆包流式识别 2.0' : s.res === 'volc.bigasr.sauc.duration' ? '豆包流式识别 1.0' : '没连上'}，${s.error ? '出错' : s.definite && !last ? '豆包判断说完' : '本地等够后收尾'}，认出 ${s.text.length} 个字，用时 ${((Date.now() - s.born) / 1000).toFixed(1)} 秒`);
       endStream(sid);
     }
     return out;
@@ -618,8 +688,8 @@ ${PERSONA}
       if (req.headers['x-voice-action'] !== '1') return json(res, 403, { error: '请求来源不对' });
       // 流式识别：页面每 0.2 秒送来一小段正在说的话，回给它到目前为止认出来的字。
       if (route === '/stream/push') {
-        if (!asrReady() || asr.stream === false) return json(res, 409, { error: '没有启用流式识别' });
-        if (Date.now() < (asrState.streamDownUntil || 0)) return json(res, 409, { error: '流式识别刚才连不上，先用整句识别' });
+        if (!qwReady() && (!asrReady() || asr.stream === false)) return json(res, 409, { error: '没有启用流式识别' });
+        if (!qwReady() && Date.now() < (asrState.streamDownUntil || 0)) return json(res, 409, { error: '流式识别刚才连不上，先用整句识别' });
         const q = new URL(req.url, 'http://x').searchParams, sid = String(q.get('sid') || '').replace(/[^\w-]/g, '').slice(0, 40);
         if (!sid) return json(res, 400, { error: '缺少编号' });
         if (!streams.has(sid) && streams.size >= 6) return json(res, 429, { error: '同时在识别的太多了' });
@@ -646,6 +716,10 @@ ${PERSONA}
       if (route === '/stt') {
         const audio = await readRaw(req, 12 * 1024 * 1024);
         if (audio.length < 800) return json(res, 400, { error: '录音是空的' });
+        if (qwReady()) {
+          try { const text = await qwenFlash(audio, 'wav'); asrState.qwError = ''; return json(res, 200, { text, engine: 'qwen' }); }
+          catch (e) { qwFail(e.message || e); }
+        }
         if (asrReady()) {
           try {
             const text = await doubao(audio, 'wav');
@@ -687,6 +761,11 @@ ${PERSONA}
         asr.tts = body.tts !== false;
         asr.fast = Boolean(body.fast);
         asr.rt = Boolean(body.rt);
+        // Qwen3-ASR：密钥栏留空表示不改原来的；没有密钥就开不了。国际站和国内站的密钥不通用，所以要选对是哪一边的。
+        if (str(body.qwKey)) asr.qwKey = String(body.qwKey).trim().slice(0, 400);
+        asr.qwRegion = body.qwRegion === 'cn' ? 'cn' : 'intl';
+        asr.qwOn = Boolean(body.qwOn) && Boolean(asr.qwKey);
+        asrState.qwError = ''; asrState.qwDownUntil = 0;
         // MiniMax 语音合成：密钥栏留空表示不改原来的；没有密钥就开不了
         if (str(body.mmKey)) asr.mmKey = String(body.mmKey).trim().slice(0, 2000);
         if (/^[\w .()\-]{2,80}$/.test(String(body.mmVoice || '').trim())) asr.mmVoice = String(body.mmVoice).trim();
@@ -704,12 +783,28 @@ ${PERSONA}
       }
       // 试一下：让本机先合成一句话，再交给豆包识别，看能不能认出来。
       if (route === '/asr/test') {
-        if (!asrHasKey()) return json(res, 400, { error: '还没有填密钥' });
+        if (!asrHasKey() && !(asr.qwOn && asr.qwKey)) return json(res, 400, { error: '还没有填密钥' });
         try {
           const said = '你好，这是调度台的语音识别测试。';
           const t = await fetch(sttUrl + 'tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: said }), signal: AbortSignal.timeout(30000) });
           if (!t.ok) return json(res, 502, { error: '本机合成不了测试用的语音' });
           const audioBuf = Buffer.from(await t.arrayBuffer()), audioFmt = /mpeg/.test(t.headers.get('content-type') || '') ? 'mp3' : 'wav';
+          if (asr.qwOn && asr.qwKey) {   // 勾了 Qwen3-ASR：测它。整句认一次，再用流式认一次（流式要原始的声音，这里只在测试用的是 wav 时做）
+            asrState.qwDownUntil = 0;
+            const text = await qwenFlash(audioBuf, audioFmt);
+            let stream = null;
+            if (audioFmt === 'wav' && audioBuf.length > 44) {
+              const rate = audioBuf.readUInt32LE(24), pcm = audioBuf.subarray(44);
+              if (rate === 16000) {
+                const sid = 'test-' + crypto.randomUUID();
+                for (let o = 0; o < pcm.length; o += 6400) await pushStream(sid, pcm.subarray(o, o + 6400), false);
+                const r = await pushStream(sid, Buffer.alloc(0), true);
+                stream = r.error ? { error: r.error } : { text: r.text };
+              }
+            }
+            asrState.qwError = '';
+            return json(res, 200, { ok: true, said, text, wordsOk: true, stream, engine: 'qwen' });
+          }
           let text = '';
           try { text = await doubao(audioBuf, audioFmt); } catch (e) { if (asr.stream === false) throw e; text = '（整句识别没通过：' + String(e.message || e).slice(0, 80) + '）'; }
           asrState.lastOk = Date.now(); asrState.lastError = '';
