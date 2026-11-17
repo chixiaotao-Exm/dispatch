@@ -206,7 +206,7 @@ const TOOLS = {
     });
     await page.waitForTimeout(900);
     const all = page.context().pages();
-    if (all.length > before) { const fresh = all[all.length - 1]; fresh.setDefaultTimeout(15000); pages.set(bot, fresh); await fresh.bringToFront().catch(() => {}); return { output: await snapshot(fresh, '（点击后打开了一个新标签页，现在看的是新标签页）') }; }
+    if (all.length > before) { const fresh = all[all.length - 1]; fresh.setDefaultTimeout(15000); pages.set(bot, fresh); await fresh.bringToFront().catch(() => {}); await page.close().catch(() => {});   /* 原来那个标签页关掉：不然开着好几个直播、视频页一直在播，会把电脑的 CPU 占满 */ return { output: await snapshot(fresh, '（点击后打开了一个新标签页，现在看的是新标签页；原来那个已经关掉，要回去就重新 browser_open）') }; }
     return { output: await snapshot(page) };
   },
   async browser_type(bot, a) {
