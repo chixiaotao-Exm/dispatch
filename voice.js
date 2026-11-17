@@ -16,14 +16,14 @@ module.exports = function (ctx) {
   // ---- 语音识别用哪一家 ----
   // 默认用本机的小模型。主人在页面上填了火山引擎（豆包语音）的密钥并打开开关后，就改用豆包的大模型来识别；
   // 豆包那边出任何问题（密钥不对、欠费、超时），这一句自动退回本机模型，电话不会断。密钥只存在这个文件里，不写进日志，也不发回页面。
-  let asr = { enabled: false, stream: true, tts: true, speaker: 'zh_female_vv_uranus_bigtts', mode: 'new', apiKey: '', appId: '', accessToken: '', hotwords: [] };
+  let asr = { enabled: false, fast: false, stream: true, tts: true, speaker: 'zh_female_vv_uranus_bigtts', mode: 'new', apiKey: '', appId: '', accessToken: '', hotwords: [] };
   try { asr = { ...asr, ...JSON.parse(fs.readFileSync(ctx.asrFile, 'utf8')) }; } catch (e) { /* 还没设置过 */ }
   const asrState = { lastOk: 0, lastError: '', lastErrorAt: 0, wordsOk: true, streamRes: '', streamWords: true, ttsOk: 0, ttsError: '', ttsDownUntil: 0 };
   const asrHasKey = () => (asr.mode === 'new' ? Boolean(asr.apiKey) : Boolean(asr.appId && asr.accessToken));
   const asrReady = () => Boolean(asr.enabled && ctx.asrFile && asrHasKey());
   const saveAsr = () => { fs.writeFileSync(ctx.asrFile + '.tmp', JSON.stringify(asr), { mode: 0o600 }); fs.renameSync(ctx.asrFile + '.tmp', ctx.asrFile); };
   const tail = (v) => (v ? '…' + String(v).slice(-4) : '');
-  const asrView = () => ({ enabled: asr.enabled, mode: asr.mode, hasKey: asrHasKey(), keyTail: asr.mode === 'new' ? tail(asr.apiKey) : tail(asr.accessToken), appId: asr.mode === 'old' ? asr.appId : '', hotwords: asr.hotwords, stream: asr.stream !== false, tts: asr.tts !== false, speaker: asr.speaker, ...asrState });
+  const asrView = () => ({ enabled: asr.enabled, mode: asr.mode, hasKey: asrHasKey(), keyTail: asr.mode === 'new' ? tail(asr.apiKey) : tail(asr.accessToken), appId: asr.mode === 'old' ? asr.appId : '', hotwords: asr.hotwords, stream: asr.stream !== false, tts: asr.tts !== false, speaker: asr.speaker, fast: Boolean(asr.fast), fastModel: ctx.fastModel || '', mainModel: ctx.mainModel || '', ...asrState });
   // 火山引擎"大模型录音文件极速版识别"：一次请求直接返回文字。自定义词随请求一起带过去。
   async function doubao(audio, format, useWords = true) {
     const request = { model_name: 'bigmodel', enable_itn: true, enable_punc: true };
@@ -141,7 +141,7 @@ module.exports = function (ctx) {
         const words = [];
         let len = 0;
         for (const w of asr.hotwords) { if (len + w.length > 60) break; words.push(w); len += w.length; }
-        const request = { model_name: 'bigmodel', enable_itn: true, enable_punc: true, show_utterances: true, result_type: 'full', enable_nonstream: true, end_window_size: 1000 };
+        const request = { model_name: 'bigmodel', enable_itn: true, enable_punc: true, show_utterances: true, result_type: 'full', enable_nonstream: true, end_window_size: 700 };
         if (words.length && asrState.streamWords) request.corpus = { context: JSON.stringify({ hotwords: words.map((word) => ({ word })) }) };
         ws.send(frame(1, 0, true, Buffer.from(JSON.stringify({ user: { uid: 'dispatch' }, audio: { format: format || 'pcm', codec: 'raw', rate: 16000, bits: 16, channel: 1 }, request }))));
         for (const b of s.pending.splice(0)) ws.send(b);
@@ -247,7 +247,13 @@ hangup：只有正在通话时才有用。主人表示这通电话可以结束�
       监控数据: ctx.briefInput ? ctx.briefInput() : undefined,
       当前简报: state.brief && state.brief.text ? state.brief.text : undefined,
     };
-    const r = await ceoCall(PROMPT, JSON.stringify(input), 900);
+    // 打电话时可以让更快的模型来接话（在"识别设置"里开）：它只负责听懂、回答、决定交给谁；审批和简报仍然是 CEO 的主模型。快的那个没答上来就换回主模型。
+    const t0 = Date.now(), useFast = Boolean(inCall && asr.fast && ctx.fastCall);
+    let r = null;
+    if (useFast) { try { r = await ctx.fastCall(PROMPT, JSON.stringify(input), 900); if (!parse(r.text)) r = null; } catch (e) { r = null; } }
+    const usedFast = Boolean(r);
+    if (!r) r = await ceoCall(PROMPT, JSON.stringify(input), 900);
+    if (inCall) console.log(`[通话] ${usedFast ? '快速模型 ' + (ctx.fastModel || '') : 'CEO 主模型'}想了 ${((Date.now() - t0) / 1000).toFixed(1)} 秒${useFast && !usedFast ? '（快速模型没答上来，换回了主模型）' : ''}`);
     const out = parse(r.text);
     if (!out) return { action: 'reply', say: r.text.replace(/\s+/g, ' ').slice(0, 400), botList };
     return { ...out, botList };
@@ -386,6 +392,7 @@ hangup：只有正在通话时才有用。主人表示这通电话可以结束�
         asr.enabled = Boolean(body.enabled) && asrHasKey();
         asr.stream = body.stream !== false;
         asr.tts = body.tts !== false;
+        asr.fast = Boolean(body.fast);
         if (/^[\w-]{3,80}$/.test(String(body.speaker || '').trim())) asr.speaker = String(body.speaker).trim();
         asrState.ttsError = ''; asrState.ttsDownUntil = 0;
         asrState.streamWords = true; asrState.streamDownUntil = 0;

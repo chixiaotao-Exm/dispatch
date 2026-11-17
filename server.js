@@ -676,7 +676,10 @@ const voice = LLM_ON ? require('./voice.js')({
   tasksUrl: AGENT_LLM_URL ? AGENT_LLM_URL.replace('/api/llm', '') : '',
   sttUrl: (cfg.voice && cfg.voice.sttUrl) || 'http://127.0.0.1:4795/',
   file: path.join(path.dirname(STATE_FILE), 'voice-log.json'),
-  asrFile: path.join(path.dirname(STATE_FILE), 'voice-asr.json'),   // 语音识别的设置（主人在页面上填的豆包密钥和自定义词）
+  asrFile: path.join(path.dirname(STATE_FILE), 'voice-asr.json'),
+  // 打电话时可选的"快速接话"：用备用模型（走中转站，通常一两秒）代替主模型来回答。默认关着，主人在识别设置里开。
+  fastCall: CEO_BACKUP ? (system, user, maxTokens) => llmCall(CEO_BACKUP, system, user, maxTokens) : null,
+  fastModel: CEO_BACKUP ? showModel(CEO_BACKUP) : '', mainModel: showModel(CEO_MODEL),   // 语音识别的设置（主人在页面上填的豆包密钥和自定义词）
 }) : null;
 if (voice) setInterval(() => voice.tick(), 4000);
 const server = http.createServer(async (req, res) => {

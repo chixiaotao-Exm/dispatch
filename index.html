@@ -1837,11 +1837,21 @@ function callFeed(items) {
   if (!call.on) return;
   for (const m of items) {
     if (call.spoken.has(m.id)) continue;
-    if (m.role === 'ceo') { call.spoken.add(m.id); call.queue.push(m.hangup ? { text: m.text, hang: true } : m.text); }   // hang：这一句说完就挂电话
-    else if (m.role === 'result') { if (m.speak) { call.spoken.add(m.id); call.queue.push(m.speak); } }
+    if (m.role === 'ceo') { call.spoken.add(m.id); callSay(m.text, m.hangup); }
+    else if (m.role === 'result') { if (m.speak) { call.spoken.add(m.id); callSay(m.speak, false); } }
     else call.spoken.add(m.id);
   }
   callPump();
+}
+// 把要说的一段话按句子拆开排队：第一句短，合成得快，能早点出声；太短的句子和前一句并在一起。hang：最后一句说完就挂电话。
+function callSay(text, hang) {
+  const out = [];
+  for (const p of String(text || '').match(/[^。！？!?；;\n]+[。！？!?；;\n]*/g) || [String(text || '')]) {
+    const t = p.trim();
+    if (!t) continue;
+    if (out.length && (out[out.length - 1].length < 10 || t.length < 6)) out[out.length - 1] += t; else out.push(t);
+  }
+  out.forEach((t, i) => call.queue.push(hang && i === out.length - 1 ? { text: t, hang: true } : t));
 }
 function callPump() {
   if (!call.on || call.state === 'speak' || call.speaking) return;
@@ -1857,7 +1867,13 @@ async function callSpeak(item) {
   voiceState('speak');
   const done = () => { if (call.speakId !== id) return; call.audio = null; if (!call.on) return; if (hang) return callStop(); callListen(); callPump(); };
   try {
-    const blob = await voiceApi('tts', { body: JSON.stringify({ text }), raw: true });
+    const make = (t) => voiceApi('tts', { body: JSON.stringify({ text: t }), raw: true });
+    const mine = call.pref && call.pref.text === text ? call.pref.p : make(text);
+    call.pref = null;
+    // 趁这一句还在合成、播放，先把下一句送去合成，两句之间就不用干等。
+    const next = call.queue[0], nextText = next && (typeof next === 'string' ? next : next.text);
+    if (nextText) { const p = make(nextText); p.catch(() => {}); call.pref = { text: nextText, p }; }
+    const blob = await mine;
     if (!call.on || call.speakId !== id) return;   // 还没开始播就被打断了
     const a = new Audio(URL.createObjectURL(blob));
     call.audio = a;
@@ -1915,7 +1931,7 @@ async function streamPump(last) {
     if (st.frames) callUtterance(st.frames);
     return;
   }
-  if (r.text) { $('callCap').textContent = '你：' + r.text; $('callCap').className = 'call-cap me'; }
+  if (r.text) { $('callCap').textContent = '你：' + r.text; $('callCap').className = 'call-cap me'; st.whole = /[。？！?!]$/.test(r.text); }
   if (r.definite || r.final || last) {
     // 豆包说这句话完了（或者本地等够了、让它收尾）：不再听，把这句话交出去。
     streamDrop();
@@ -1970,8 +1986,8 @@ function callFrame(input, rate) {
     // 免得把喇叭里它自己的声音、咳嗽、敲键盘当成你在说话。
     call.pre.push(out);
     if (call.pre.length > 18) call.pre.shift();
-    if (rms > Math.max(0.05, call.noise * 7)) call.loudMs += ms; else call.loudMs = Math.max(0, call.loudMs - ms);
-    if (call.loudMs >= 450 && now - call.speakAt > 1200) callBarge(now);
+    if (rms > Math.max(0.038, call.noise * 6)) call.loudMs += ms; else call.loudMs = Math.max(0, call.loudMs - ms);
+    if (call.loudMs >= 360 && now - call.speakAt > 1200) callBarge(now);
     return;
   }
   if (now < call.muteUntil) return;
@@ -1988,7 +2004,7 @@ function callFrame(input, rate) {
   call.rec.push(out);
   if (rms > thr) call.lastLoud = now;
   // 用流式识别时，一句话说完没有主要由豆包判断；这里的停顿时间放长一些，只当作兜底。
-  if (now - call.lastLoud > (call.st ? 1300 : 1000) || now - call.startAt > 60000) {
+  if (now - call.lastLoud > (call.st ? (call.st.whole ? 850 : 1300) : 1000) || now - call.startAt > 60000) {
     const frames = call.rec, spoke = call.lastLoud - call.startAt;
     call.rec = []; call.speaking = false; call.loudMs = 0;
     if (spoke < 200) { streamDrop(); $('voiceStateText').textContent = '正在听，直接说话就行'; return callPump(); }
@@ -2049,6 +2065,7 @@ async function asrDialog(note, bad) {
       <label>自定义词（每行一个：你常说的名字、网站名、英文词，识别时会优先往这些词上靠）<textarea name="hotwords" rows="6">${esc(words.join(String.fromCharCode(10)))}</textarea></label>
       <label class="asr-radio"><input type="checkbox" name="enabled" ${d.enabled || !d.hasKey ? 'checked' : ''}>用豆包语音识别（不勾就用本机的小模型）</label>
       <label class="asr-radio"><input type="checkbox" name="stream" ${d.stream ? 'checked' : ''}>边说边出字（流式识别，需要在火山引擎另外开通“豆包流式语音识别模型2.0”）</label>
+      ${d.fastModel ? `<label class="asr-radio"><input type="checkbox" name="fast" ${d.fast ? 'checked' : ''}>通话时用更快的模型接话（${esc(d.fastModel)}，一般一两秒；不勾则用 ${esc(d.mainModel)}，一般六到十秒）</label><p class="dlg-note" style="margin:2px 0 6px 22px">只影响电话里的回答和派活；审批命令、写简报仍然是 ${esc(d.mainModel)}。</p>` : ''}
       <label class="asr-radio"><input type="checkbox" name="tts" ${d.tts ? 'checked' : ''}>用豆包的声音回答（需要开通“豆包语音合成模型2.0”；不勾就用本机的声音）</label>
       <label>音色<select name="speakerPick">
         <option value="zh_female_vv_uranus_bigtts">Vivi（女声，默认）</option>
@@ -2064,7 +2081,7 @@ async function asrDialog(note, bad) {
   f.speakerPick.value = [...f.speakerPick.options].some((o) => o.value === d.speaker) ? d.speaker : '';
   const sync = () => { for (const el of f.querySelectorAll('[data-mode]')) el.hidden = el.dataset.mode !== f.mode.value; f.querySelector('[data-other-speaker]').hidden = f.speakerPick.value !== ''; };
   sync(); f.addEventListener('change', sync);
-  const save = async () => voiceApi('asr/save', { body: JSON.stringify({ mode: f.mode.value, apiKey: f.apiKey.value, appId: f.appId.value, accessToken: f.accessToken.value, hotwords: f.hotwords.value, enabled: f.enabled.checked, stream: f.stream.checked, tts: f.tts.checked, speaker: f.speakerPick.value || f.speaker.value }) });
+  const save = async () => voiceApi('asr/save', { body: JSON.stringify({ mode: f.mode.value, apiKey: f.apiKey.value, appId: f.appId.value, accessToken: f.accessToken.value, hotwords: f.hotwords.value, enabled: f.enabled.checked, stream: f.stream.checked, tts: f.tts.checked, fast: Boolean(f.fast && f.fast.checked), speaker: f.speakerPick.value || f.speaker.value }) });
   const msg = (t, isBad) => { $('asrMsg').textContent = t; $('asrMsg').className = 'asr-msg' + (isBad ? ' dlg-bad' : ''); };
   $('asrClose').addEventListener('click', () => dlgClose(false));
   f.addEventListener('submit', async (e) => { e.preventDefault(); try { const r = await save(); asrDialog(r.enabled ? '已保存，之后的通话用豆包语音识别。' : r.hasKey ? '已保存，目前用本机的小模型。' : '已保存。还没有填密钥，所以用的还是本机的小模型。'); } catch (err) { msg(err.message, true); } });
@@ -2367,6 +2384,11 @@ function closeTerm() {
 $('termClose').addEventListener('click', closeTerm);
 $('termMax').addEventListener('click', () => setTermMax(!term.classList.contains('max')));
 $('termReload').addEventListener('click', () => { PANES[pane].frame.src = PANES[pane].url; });
+// Bot 桌面：画面跟着窗口缩放时，浏览器会报一句无害的提示（ResizeObserver loop…），远程桌面程序却把它当成大错，弹出一个红框挡住画面。
+// 每次桌面加载好之后，抢在它前面把这一种提示拦掉；别的真正的错误照常显示。
+$('deskpcFrame').addEventListener('load', () => {
+  try { $('deskpcFrame').contentWindow.addEventListener('error', (e) => { if (/ResizeObserver loop/i.test(String(e.message || ''))) { e.stopImmediatePropagation(); e.preventDefault(); } }, true); } catch (e) { /* 桌面没加载出来 */ }
+});
 // 网页终端自带"重新加载此网站？"的离开提醒。终端的会话保存在服务器上，刷新或关掉页面都不会丢，
 // 所以每次终端加载好之后，抢在它前面把这个提醒拦掉。（文件和规则页面里"有没保存的修改"的提醒不受影响。）
 $('termFrame').addEventListener('load', () => {
