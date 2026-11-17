@@ -16,14 +16,14 @@ module.exports = function (ctx) {
   // ---- 语音识别用哪一家 ----
   // 默认用本机的小模型。主人在页面上填了火山引擎（豆包语音）的密钥并打开开关后，就改用豆包的大模型来识别；
   // 豆包那边出任何问题（密钥不对、欠费、超时），这一句自动退回本机模型，电话不会断。密钥只存在这个文件里，不写进日志，也不发回页面。
-  let asr = { enabled: false, stream: true, mode: 'new', apiKey: '', appId: '', accessToken: '', hotwords: [] };
+  let asr = { enabled: false, stream: true, tts: true, speaker: 'zh_female_vv_uranus_bigtts', mode: 'new', apiKey: '', appId: '', accessToken: '', hotwords: [] };
   try { asr = { ...asr, ...JSON.parse(fs.readFileSync(ctx.asrFile, 'utf8')) }; } catch (e) { /* 还没设置过 */ }
-  const asrState = { lastOk: 0, lastError: '', lastErrorAt: 0, wordsOk: true, streamRes: '', streamWords: true };
+  const asrState = { lastOk: 0, lastError: '', lastErrorAt: 0, wordsOk: true, streamRes: '', streamWords: true, ttsOk: 0, ttsError: '', ttsDownUntil: 0 };
   const asrHasKey = () => (asr.mode === 'new' ? Boolean(asr.apiKey) : Boolean(asr.appId && asr.accessToken));
   const asrReady = () => Boolean(asr.enabled && ctx.asrFile && asrHasKey());
   const saveAsr = () => { fs.writeFileSync(ctx.asrFile + '.tmp', JSON.stringify(asr), { mode: 0o600 }); fs.renameSync(ctx.asrFile + '.tmp', ctx.asrFile); };
   const tail = (v) => (v ? '…' + String(v).slice(-4) : '');
-  const asrView = () => ({ enabled: asr.enabled, mode: asr.mode, hasKey: asrHasKey(), keyTail: asr.mode === 'new' ? tail(asr.apiKey) : tail(asr.accessToken), appId: asr.mode === 'old' ? asr.appId : '', hotwords: asr.hotwords, stream: asr.stream !== false, ...asrState });
+  const asrView = () => ({ enabled: asr.enabled, mode: asr.mode, hasKey: asrHasKey(), keyTail: asr.mode === 'new' ? tail(asr.apiKey) : tail(asr.accessToken), appId: asr.mode === 'old' ? asr.appId : '', hotwords: asr.hotwords, stream: asr.stream !== false, tts: asr.tts !== false, speaker: asr.speaker, ...asrState });
   // 火山引擎"大模型录音文件极速版识别"：一次请求直接返回文字。自定义词随请求一起带过去。
   async function doubao(audio, format, useWords = true) {
     const request = { model_name: 'bigmodel', enable_itn: true, enable_punc: true };
@@ -46,6 +46,44 @@ module.exports = function (ctx) {
     }
     if (useWords && request.context) asrState.wordsOk = true;
     return String((j.result && j.result.text) || '').trim();
+  }
+  // ---- 说话的声音：豆包语音合成 2.0 ----
+  // 把一句话交给豆包合成，拿回一段 mp3。豆包是一小块一小块往回传的（每块是一段 JSON，里面是 base64 的声音），这里全部收齐再拼起来。
+  const ttsReady = () => Boolean(asr.enabled && asr.tts !== false && ctx.asrFile && asrHasKey() && Date.now() >= asrState.ttsDownUntil);
+  // 把连在一起的一串 JSON 拆开：可能是一行一个，也可能首尾相接没有换行。
+  function splitJson(text) {
+    const out = [];
+    let depth = 0, start = -1, inStr = false, esc = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (inStr) { if (esc) esc = false; else if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; }
+      if (ch === '"') inStr = true;
+      else if (ch === '{') { if (depth++ === 0) start = i; }
+      else if (ch === '}' && --depth === 0 && start >= 0) { try { out.push(JSON.parse(text.slice(start, i + 1))); } catch (e) { /* 这一块坏了，跳过 */ } start = -1; }
+    }
+    return out;
+  }
+  async function doubaoTts(text) {
+    const res = await fetch('https://openspeech.bytedance.com/api/v3/tts/unidirectional', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Resource-Id': 'seed-tts-2.0', 'X-Api-Request-Id': crypto.randomUUID(),
+        ...(asr.mode === 'new' ? { 'X-Api-Key': asr.apiKey } : { 'X-Api-App-Id': asr.appId, 'X-Api-Access-Key': asr.accessToken }) },
+      body: JSON.stringify({ user: { uid: 'dispatch' }, req_params: { text, speaker: asr.speaker, audio_params: { format: 'mp3', sample_rate: 24000 } } }),
+      signal: AbortSignal.timeout(25000),
+    });
+    const raw = await res.text();
+    const parts = [];
+    let done = false, bad = '';
+    for (const j of splitJson(raw)) {
+      if (j.code === 0 || j.code === 20000000) { if (j.data) parts.push(Buffer.from(j.data, 'base64')); if (j.code === 20000000) done = true; }
+      else if (j.code !== undefined) bad = `${j.code}：${String(j.message || '').slice(0, 120)}`;
+    }
+    if (bad || !parts.length) {
+      const why = res.status === 401 || res.status === 403 ? '密钥不对，或者没有开通"语音合成模型2.0"' : /speaker permission denied|access denied/i.test(bad) ? '这个音色用不了：它不属于语音合成 2.0，或者你的账号没有这个音色' : bad || `返回 ${res.status}：${raw.replace(/\s+/g, ' ').slice(0, 100)}`;
+      throw new Error('豆包合成没成：' + why);
+    }
+    if (!done) console.log('[语音合成] 豆包没有发来结束标记，按已经收到的声音播放');
+    return Buffer.concat(parts);
   }
   // ---- 流式识别（边说边出字）----
   // 页面把正在说的话每 0.2 秒传来一小段，这里通过一条和豆包之间的长连接转过去，豆包一边听一边把认出来的字传回来，
@@ -347,6 +385,9 @@ hangup：只有正在通话时才有用。主人表示这通电话可以结束�
         asr.hotwords = [...new Set(String(body.hotwords || '').split(/[\n,，、]+/).map((w) => w.trim().slice(0, 30)).filter(Boolean))].slice(0, 300);
         asr.enabled = Boolean(body.enabled) && asrHasKey();
         asr.stream = body.stream !== false;
+        asr.tts = body.tts !== false;
+        if (/^[\w-]{3,80}$/.test(String(body.speaker || '').trim())) asr.speaker = String(body.speaker).trim();
+        asrState.ttsError = ''; asrState.ttsDownUntil = 0;
         asrState.streamWords = true; asrState.streamDownUntil = 0;
         saveAsr();
         asrState.lastError = '';
@@ -394,11 +435,23 @@ hangup：只有正在通话时才有用。主人表示这通电话可以结束�
         const body = JSON.parse((await readRaw(req, 20000)).toString('utf8') || '{}');
         const text = forSpeech(body.text);
         if (!text) return json(res, 400, { error: '没有要念的内容' });
+        if (ttsReady()) {
+          try {
+            const mp3 = await doubaoTts(text);
+            asrState.ttsOk = Date.now(); asrState.ttsError = '';
+            res.writeHead(200, { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store', 'X-Voice-Engine': 'doubao' });
+            return res.end(mp3);
+          } catch (e) {
+            asrState.ttsError = String(e.message || e).slice(0, 200);
+            asrState.ttsDownUntil = Date.now() + 3 * 60000;   // 三分钟内先用本机的声音，免得每句话都白等
+            console.log('[语音合成] ' + asrState.ttsError + '；这几分钟先用本机的声音');
+          }
+        }
         let r;
         try { r = await fetch(sttUrl + 'tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }), signal: AbortSignal.timeout(60000) }); }
         catch (e) { return json(res, 502, { error: '语音合成服务没有回应' }); }
         if (!r.ok) return json(res, 502, { error: '语音合成出错' });
-        res.writeHead(200, { 'Content-Type': r.headers.get('content-type') || 'audio/wav', 'Cache-Control': 'no-store' });
+        res.writeHead(200, { 'Content-Type': r.headers.get('content-type') || 'audio/wav', 'Cache-Control': 'no-store', 'X-Voice-Engine': 'local' });
         return res.end(Buffer.from(await r.arrayBuffer()));
       }
       if (route === '/clear') { log = log.filter((m) => m.state === 'running'); save(); return json(res, 200, { ok: true }); }
