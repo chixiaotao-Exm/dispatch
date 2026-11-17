@@ -1785,7 +1785,7 @@ function paintVoice(d) {
     $('callCap').textContent = !last ? '说完停一下，我就会接话。说“挂断”可以结束通话。' : last.role === 'me' ? '你：' + last.text : last.role === 'result' ? last.speak : last.text;
     $('callCap').className = 'call-cap' + (last && last.role === 'me' ? ' me' : '');
   }
-  const key = JSON.stringify([items.length, items.length ? items[items.length - 1].id : 0, voiceBusy, items.map((m) => m.state || '').join('')]);
+  const key = JSON.stringify([items.length, items.length ? items[items.length - 1].id : 0, items.length ? String(items[items.length - 1].text || '').length : 0, voiceBusy, items.map((m) => m.state || '').join('')]);
   if (key === voiceKey) return;
   voiceKey = key;
   const isBot = (m) => m.kind === 'bot' || (m.ref && m.ref.kind === 'bot');
@@ -1816,7 +1816,7 @@ function voiceLook(items) {
 async function voiceLoad() { try { paintVoice(await voiceApi('log')); } catch (e) { /* 下一轮再取 */ } }
 function voicePolling() {
   clearInterval(voicePoll);
-  if (call.on || voiceShow) { voiceLoad(); voicePoll = setInterval(voiceLoad, call.on ? 1200 : 3000); }
+  if (call.on || voiceShow) { voiceLoad(); voicePoll = setInterval(voiceLoad, call.on ? 400 : 3000); }   // 通话中取得勤：回答是边写边念的
   else $('voiceBox').hidden = true;
 }
 async function voiceSend(text) {
@@ -1837,7 +1837,27 @@ function callFeed(items) {
   if (!call.on) return;
   for (const m of items) {
     if (call.spoken.has(m.id)) continue;
-    if (m.role === 'ceo') { call.spoken.add(m.id); callSay(m.text, m.hangup); }
+    if (m.role === 'ceo') {
+      // 这条回答可能还在写（streaming）：已经写完整的句子先念，剩下的等它写出来再念。part 记着这一条念到了第几个字。
+      if (call.skip === m.id) { if (!m.streaming) call.spoken.add(m.id); continue; }   // 被你打断的那一条：后面的不念了
+      const text = String(m.text || ''), from = call.part && call.part.id === m.id ? Math.min(call.part.len, text.length) : 0;
+      const rest = text.slice(from);
+      if (m.streaming) {
+        call.live = m.id;
+        const cut = Math.max(...['。', '！', '？', '!', '?', '；', ';'].map((c) => rest.lastIndexOf(c))) + 1;
+        if (cut > 0 && (from > 0 || cut >= 5)) { callSay(rest.slice(0, cut), false); call.part = { id: m.id, len: from + cut }; }
+        continue;
+      }
+      call.spoken.add(m.id);
+      if (call.live === m.id) call.live = 0;
+      if (rest.trim()) callSay(rest, m.hangup);
+      else if (m.hangup) {
+        // 话已经全念出去了，只剩"说完就挂"：挂在最后一句上
+        if (call.queue.length) { const q = call.queue.pop(); call.queue.push({ text: typeof q === 'string' ? q : q.text, hang: true }); }
+        else if (call.state === 'speak') call.hangAfter = true;
+        else return callStop();
+      }
+    }
     else if (m.role === 'result') { if (m.speak) { call.spoken.add(m.id); callSay(m.speak, false); } }
     else call.spoken.add(m.id);
   }
@@ -1856,7 +1876,7 @@ function callSay(text, hang) {
 function callPump() {
   if (!call.on || call.state === 'speak' || call.speaking) return;
   if (call.queue.length) return callSpeak(call.queue.shift());
-  if (call.state === 'think' && !voiceBusy && !call.sending) callListen();
+  if (call.state === 'think' && !voiceBusy && !call.sending && !call.live) callListen();
 }
 function callListen() { call.pre = []; call.rec = []; call.speaking = false; call.loudMs = 0; call.muteUntil = Date.now() + 350; voiceState('listen'); }
 async function callSpeak(item) {
@@ -1865,7 +1885,7 @@ async function callSpeak(item) {
   call.speakAt = Date.now() + 500;   // 大约半秒后才真正出声
   call.loudMs = 0; call.pre = [];
   voiceState('speak');
-  const done = () => { if (call.speakId !== id) return; call.audio = null; if (!call.on) return; if (hang) return callStop(); callListen(); callPump(); };
+  const done = () => { if (call.speakId !== id) return; call.audio = null; if (!call.on) return; if (hang || (call.hangAfter && !call.queue.length)) return callStop(); if (call.live && !call.queue.length) return voiceState('think'); callListen(); callPump(); };   // 这条回答还在写：先别开始听，等下一句
   try {
     const make = (t) => voiceApi('tts', { body: JSON.stringify({ text: t }), raw: true });
     const mine = call.pref && call.pref.text === text ? call.pref.p : make(text);
@@ -1966,7 +1986,8 @@ async function callUtterance(frames) {
 function callBarge(now) {
   call.speakId++;
   try { if (call.audio) call.audio.pause(); if (window.speechSynthesis) speechSynthesis.cancel(); } catch (e) { /* 没在播 */ }
-  call.audio = null; call.queue = [];
+  call.audio = null; call.queue = []; call.hangAfter = false;
+  if (call.live) { call.skip = call.live; call.live = 0; }   // 她那条回答还没写完：剩下的不念了
   voiceState('listen', '听到你说话了，请继续…');
   Object.assign(call, { speaking: true, rec: call.pre, pre: [], startAt: now - 300, lastLoud: now, loudMs: 0, muteUntil: 0 });
   streamBegin();
@@ -2022,7 +2043,7 @@ async function callStart() {
   quiet.gain.value = 0;
   node.onaudioprocess = (e) => callFrame(e.inputBuffer.getChannelData(0), ctx.sampleRate);
   ctx.createMediaStreamSource(stream).connect(node); node.connect(quiet); quiet.connect(ctx.destination);
-  Object.assign(call, { on: true, ctx, stream, node, queue: [], spoken: new Set(), noise: 0.006 });
+  Object.assign(call, { on: true, ctx, stream, node, queue: [], spoken: new Set(), noise: 0.006, live: 0, skip: 0, part: null, hangAfter: false });
   try { for (const m of (await voiceApi('log')).items || []) call.spoken.add(m.id); } catch (e) { /* 取不到就算了 */ }
   try { const a = await voiceApi('asr'); call.stream = Boolean(a.enabled && a.stream); } catch (e) { call.stream = false; }
   call.startId = Math.max(0, ...call.spoken); call.t0 = Date.now(); clearInterval(call.clock); call.clock = setInterval(callClock, 1000); callClock();

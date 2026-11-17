@@ -667,6 +667,82 @@ function askClaude(model, system, user) {
     child.stdin.end(user);
   });
 }
+// ---- 通话用：先开着待命，问的时候边想边把字送回去 ----
+// 临时启动一次 Claude 要一秒多。打电话时等不起，所以提前开好一个等在那里（不提问就不消耗额度），
+// 问题一来直接送进去；它每出几个字就马上转给调度台，调度台就能在整段话想完之前先把第一句念出来。
+// 每个待命的只回答一句就关掉（不让上一句留在它的记忆里），同时马上再开一个给下一句用；五分钟没人问就关掉不占内存。
+const WARM_IDLE_MS = 5 * 60 * 1000;
+const warm = new Map();   // 模型 + 系统提示 → 正在待命的那一个
+const warmKey = (model, system) => model + ':' + require('crypto').createHash('sha1').update(system).digest('hex');
+function warmSpawn(model, system) {
+  fs.mkdirSync(LLM_DIR, { recursive: true });
+  const child = spawn(CLAUDE_BIN, ['-p', '--model', model, '--system-prompt', system, '--tools', '', '--input-format', 'stream-json', '--output-format', 'stream-json',
+    '--include-partial-messages', '--verbose', '--no-session-persistence', '--disable-slash-commands', '--strict-mcp-config'], {
+    cwd: LLM_DIR, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, HOME: AGENT_HOME, USER: 'agent', LOGNAME: 'agent' },
+  });
+  const w = { child, dead: false, timer: null };
+  child.on('error', () => { w.dead = true; });
+  child.on('close', () => { w.dead = true; });
+  child.stdin.on('error', () => { w.dead = true; });
+  child.stderr.on('data', () => {});
+  return w;
+}
+const warmKill = (w) => { clearTimeout(w.timer); try { w.child.kill('SIGKILL'); } catch (e) { /* 已经退出 */ } };
+function warmKeep(model, system) {
+  const key = warmKey(model, system);
+  let w = warm.get(key);
+  if (!w || w.dead) {
+    for (const [k, old] of warm) if (k !== key) { warm.delete(k); warmKill(old); }   // 同时只留一种待命的
+    w = warmSpawn(model, system);
+    warm.set(key, w);
+  }
+  clearTimeout(w.timer);
+  w.timer = setTimeout(() => { if (warm.get(key) === w) warm.delete(key); warmKill(w); }, WARM_IDLE_MS);
+}
+function askClaudeStream(model, system, user, res) {
+  return new Promise((resolve) => {
+    const started = Date.now(), key = warmKey(model, system);
+    let w = warm.get(key);
+    warm.delete(key);
+    if (w) clearTimeout(w.timer);
+    const wasWarm = Boolean(w && !w.dead);
+    if (!wasWarm) w = warmSpawn(model, system);
+    warmKeep(model, system);   // 下一句用的现在就备好
+    const child = w.child;
+    res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' });
+    const send = (o) => { try { res.write(JSON.stringify(o) + '\n'); } catch (e) { /* 对方已经断开 */ } };
+    let buf = '', text = '', finished = false;
+    const finish = (o) => {
+      if (finished) return;
+      finished = true; clearTimeout(timer);
+      if (o) send(o);
+      try { res.end(); } catch (e) { /* 已经断开 */ }
+      try { child.kill('SIGKILL'); } catch (e) { /* 已经退出 */ }
+      resolve();
+    };
+    const timer = setTimeout(() => finish({ error: 'Claude 没有答复（超时）' }), 90000);
+    child.stdout.on('data', (c) => {
+      buf += c;
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 1);
+        let j; try { j = JSON.parse(line); } catch (e) { continue; }
+        if (j.type === 'stream_event' && j.event && j.event.type === 'content_block_delta' && j.event.delta && j.event.delta.type === 'text_delta') {
+          text += j.event.delta.text; send({ d: j.event.delta.text });
+        } else if (j.type === 'result') {
+          const full = (text || String(j.result || '')).trim();
+          if (j.is_error || !full) finish({ error: 'Claude 没有答复（' + String(j.result || '没有返回内容').replace(/\s+/g, ' ').slice(0, 160) + '）' });
+          else finish({ done: true, text: full, ms: Date.now() - started, model, warm: wasWarm });
+        }
+      }
+    });
+    child.on('close', () => finish({ error: 'Claude 没有答复（中途退出）' }));
+    child.on('error', (e) => finish({ error: 'Claude Code 启动失败：' + e.message }));
+    res.on('close', () => finish(null));
+    try { child.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content: user } }) + '\n'); }
+    catch (e) { finish({ error: 'Claude 没有答复（送不进去）' }); }
+  });
+}
 
 // ---- Claude 额度 ----
 // 开一个单独的后台 Claude Code 会话（不是主人用的那个终端），输入 /usage，把屏幕上的内容读出来，然后关掉。
@@ -777,6 +853,17 @@ async function handleTasks(req, res, url) {
     if (llmRunning >= 3) throw fail(429, '同时在问的太多了，稍后再试');
     llmRunning++;
     try { return json(res, 200, await askClaude(model, body.system, body.user)); } finally { llmRunning--; }
+  }
+  if (route === '/api/llm/warm' || route === '/api/llm/stream') {
+    const body = await readJsonBody(req, 200000);
+    const model = LLM_MODELS.includes(body.model) ? body.model : null;
+    if (!model) throw fail(400, '不支持这个模型');
+    if (typeof body.system !== 'string' || !body.system || body.system.length > 20000) throw fail(400, '内容不对');
+    if (route === '/api/llm/warm') { warmKeep(model, body.system); return json(res, 200, { ok: true }); }
+    if (typeof body.user !== 'string' || !body.user.trim()) throw fail(400, '内容不对');
+    if (llmRunning >= 3) throw fail(429, '同时在问的太多了，稍后再试');
+    llmRunning++;
+    try { return await askClaudeStream(model, body.system, body.user, res); } finally { llmRunning--; }
   }
   if (route === '/api/usage/refresh') {
     if (!usageBusy && Date.now() - usageTriedAt < 30000) throw fail(429, '刚刷新过，过半分钟再点');

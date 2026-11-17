@@ -201,7 +201,8 @@ module.exports = function (ctx) {
 
   const PROMPT = `你是 CEO Agent。主人${ctx.ownerName ? '（' + ctx.ownerName + '）' : ''}正在调度台上对你说话。文字多半是语音识别出来的，可能有同音错字，按意思理解；实在听不明白就问他，不要猜着派活。
 你的工作是决定这句话由谁来办。只输出一个 JSON，不要输出别的：
-{"action":"reply 或 agent 或 bot","bot":"Bot 的名字，action 是 bot 时才填","followUp":false,"hangup":false,"look":[],"task":"交给对方的任务说明","say":"对主人说的一句话"}
+{"action":"reply 或 agent 或 bot","bot":"Bot 的名字，action 是 bot 时才填","say":"对主人说的一句话","followUp":false,"hangup":false,"look":[],"task":"交给对方的任务说明"}
+各项就按上面这个顺序写（先想好再动笔：action 定下来之后紧接着写 say，因为 say 会在你写完其余各项之前就先念给主人听）。
 
 三种做法：
 - reply：你自己直接回答。适用于：问现在的运行情况（只用下面给你的监控数据回答，不要编造）、闲聊、问你能做什么、或者你需要先问清楚再派活。这时 say 就是你的回答，最多 200 字，task 留空。
@@ -235,7 +236,24 @@ hangup：只有正在通话时才有用。主人表示这通电话可以结束�
     } catch (e) { return null; }
   }
 
-  async function decide(text, inCall) {
+  // 回答还没写完时，把其中已经写出来的那部分 say 取出来（JSON 还不完整，不能直接解析）。
+  function partialSay(buf) {
+    const m = /"say"\s*:\s*"/.exec(buf);
+    if (!m) return '';
+    let out = '';
+    for (let i = m.index + m[0].length; i < buf.length; i++) {
+      const c = buf[i];
+      if (c === '"') break;
+      if (c !== '\\') { out += c; continue; }
+      if (i + 1 >= buf.length) break;
+      const n = buf[++i];
+      if (n === 'u') { if (i + 4 >= buf.length) break; out += String.fromCharCode(parseInt(buf.slice(i + 1, i + 5), 16) || 32); i += 4; }
+      else out += n === 'n' || n === 't' || n === 'r' ? ' ' : n;
+    }
+    return out.trimStart();
+  }
+
+  async function decide(text, inCall, onSay) {
     let botList = [], botErr = '';
     try { botList = (await bots('/api/state')).bots || []; } catch (e) { botErr = 'Bot 那边现在连不上'; }
     const input = {
@@ -252,10 +270,32 @@ hangup：只有正在通话时才有用。主人表示这通电话可以结束�
     let r = null;
     if (useFast) { try { r = await ctx.fastCall(PROMPT, JSON.stringify(input), 900); if (!parse(r.text)) r = null; } catch (e) { r = null; } }
     const usedFast = Boolean(r);
+    // 打电话时让 CEO 的主模型边想边出字：say 的第一句一写出来就交给页面去念，不用等整段写完。
+    // 只在它自己回答、或者交给专用 Agent 时这样做；交给 Bot 要先确认那个 Bot 在不在、忙不忙，等想完再说。
+    let streamed = '', firstAt = 0, wasWarm = false;
+    if (!r && inCall && ctx.ceoStream) {
+      try {
+        r = await ctx.ceoStream(PROMPT, JSON.stringify(input), (buf) => {
+          const a = /"action"\s*:\s*"(\w+)"/.exec(buf);
+          if (!a || (a[1] !== 'reply' && a[1] !== 'agent')) return;
+          const p = partialSay(buf);
+          if (!p.trim() || p === streamed) return;
+          if (!firstAt) firstAt = Date.now();
+          streamed = p;
+          if (onSay) onSay(p);
+        });
+        wasWarm = Boolean(r.warm);
+      } catch (e) {
+        console.log('[通话] 边想边说这一次没成（' + String(e.message || e).slice(0, 100) + '）' + (streamed ? '，已经说出口的部分照用' : '，改成想完再说'));
+        if (streamed) return { action: 'reply', say: streamed, botList };
+        r = null;
+      }
+    }
+    const usedStream = Boolean(r) && !usedFast;
     if (!r) r = await ceoCall(PROMPT, JSON.stringify(input), 900);
-    if (inCall) console.log(`[通话] ${usedFast ? '快速模型 ' + (ctx.fastModel || '') : 'CEO 主模型'}想了 ${((Date.now() - t0) / 1000).toFixed(1)} 秒${useFast && !usedFast ? '（快速模型没答上来，换回了主模型）' : ''}`);
+    if (inCall) console.log(`[通话] ${usedFast ? '快速模型 ' + (ctx.fastModel || '') : 'CEO 主模型'}想了 ${((Date.now() - t0) / 1000).toFixed(1)} 秒${usedStream ? `（边想边说，${firstAt ? '第 ' + ((firstAt - t0) / 1000).toFixed(1) + ' 秒开始有话可念' : '没有提前念'}，${wasWarm ? '用的是待命的' : '临时启动的'}）` : ''}${useFast && !usedFast ? '（快速模型没答上来，换回了主模型）' : ''}`);
     const out = parse(r.text);
-    if (!out) return { action: 'reply', say: r.text.replace(/\s+/g, ' ').slice(0, 400), botList };
+    if (!out) return { action: 'reply', say: streamed || r.text.replace(/\s+/g, ' ').slice(0, 400), botList };
     return { ...out, botList };
   }
 
@@ -263,9 +303,21 @@ hangup：只有正在通话时才有用。主人表示这通电话可以结束�
     busy = true;
     let hang = false;   // 主人说可以挂电话了：这一句回答说完，页面就把电话挂断
     let look = [];   // 这一句回答查了哪些部门的数据：页面会在地图上画出它去查的那一趟
-    const say = (m) => push({ ...m, ...(hang ? { hangup: true } : {}), ...(look.length ? { look } : {}) });
+    // 边想边说：回答还在写的时候，先放一条"正在写"的记录进去，字越来越多；页面看到完整的一句就先念。
+    let live = null;
+    const onSay = (t) => { if (!live) { live = { id: ++seq, at: Date.now(), role: 'ceo', text: t, streaming: true }; log.push(live); } else live.text = t; };
+    const say = (m) => {
+      const extra = { ...(hang ? { hangup: true } : {}), ...(look.length ? { look } : {}) };
+      if (live) {
+        const it = live;
+        live = null; delete it.streaming;
+        // 最后定下来的话就是刚才边写边念的那一段：把这条记录补全。不一样（比如事情没派出去）：已经念出口的留着，另起一条说明。
+        if (String(m.text || '').startsWith(it.text.trim())) { Object.assign(it, m, extra); save(); return it; }
+      }
+      return push({ ...m, ...extra });
+    };
     try {
-      const d = await decide(text, inCall);
+      const d = await decide(text, inCall, onSay);
       hang = Boolean(inCall && d.hangup);
       look = d.action === 'reply' ? d.look || [] : [];
       if (d.action === 'bot') {
@@ -348,6 +400,7 @@ hangup：只有正在通话时才有用。主人表示这通电话可以结束�
         const q = new URL(req.url, 'http://x').searchParams, sid = String(q.get('sid') || '').replace(/[^\w-]/g, '').slice(0, 40);
         if (!sid) return json(res, 400, { error: '缺少编号' });
         if (!streams.has(sid) && streams.size >= 6) return json(res, 429, { error: '同时在识别的太多了' });
+        if (!streams.has(sid) && ctx.ceoWarm) ctx.ceoWarm(PROMPT);   // 主人刚开口：趁他说话，让 CEO 的模型先准备好
         return json(res, 200, await pushStream(sid, await readRaw(req, 2 * 1024 * 1024), q.get('last') === '1'));
       }
       if (route === '/stt') {
@@ -436,6 +489,7 @@ hangup：只有正在通话时才有用。主人表示这通电话可以结束�
           + (todo.length ? `现在有 ${todo.length} 件事需要留意，最要紧的是：${String(todo[0].text).replace(/\s+/g, ' ').slice(0, 60)}。` : '现在一切正常，没有告警。')
           + '有什么要交代的？';
         push({ role: 'ceo', text, hello: true });
+        if (ctx.ceoWarm) ctx.ceoWarm(PROMPT);   // 电话接通：让 CEO 的模型先开好等着
         return json(res, 200, { ok: true });
       }
       if (route === '/tts') {

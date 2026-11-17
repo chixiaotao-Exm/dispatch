@@ -375,6 +375,40 @@ async function ceoCall(system, user, maxTokens) {
     return cleanReply(await llmCall(CEO_BACKUP, system, user, maxTokens));
   }
 }
+// 打电话时用：CEO 的模型一边想一边把字送回来（onText 每次拿到"到目前为止的全文"），这样第一句话一出来就能先念。
+// 只有模型走专用 Agent 那边的 Claude 订阅时才有这条路；用不了时调用方会退回上面那种"想完再给"的问法。
+const CEO_STREAM_ON = () => viaAgent(CEO_MODEL);
+async function ceoStream(system, user, onText) {
+  const started = Date.now();
+  const res = await fetch(AGENT_LLM_URL + '/stream', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Files-Action': '1' },
+    body: JSON.stringify({ model: CEO_MODEL, system, user }), signal: AbortSignal.timeout(100000),
+  });
+  if (!res.ok || !res.body) throw new Error(`专用 Agent 那边返回 ${res.status}`);
+  const dec = new TextDecoder(), NL = String.fromCharCode(10);
+  let buf = '', text = '', final = null;
+  for await (const chunk of res.body) {
+    buf += dec.decode(chunk, { stream: true });
+    let i;
+    while ((i = buf.indexOf(NL)) >= 0) {
+      const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+      if (!line) continue;
+      const j = JSON.parse(line);
+      if (j.error) throw new Error(j.error);
+      if (j.done) final = j;
+      else if (j.d) { text += j.d; try { onText(text); } catch (e) { /* 念不了不影响拿到完整的回答 */ } }
+    }
+  }
+  if (!final) throw new Error('专用 Agent 那边中途断了');
+  return { ...cleanReply({ text: final.text, ms: Date.now() - started }), warm: Boolean(final.warm) };
+}
+// 让那边提前开好一个 Claude 等着（电话一接通、主人一开口就叫一声），问的时候就不用再等它启动。
+function ceoWarm(system) {
+  fetch(AGENT_LLM_URL + '/warm', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Files-Action': '1' },
+    body: JSON.stringify({ model: CEO_MODEL, system }), signal: AbortSignal.timeout(8000),
+  }).catch(() => { /* 没备上也不要紧，只是慢一点 */ });
+}
 async function llmCall(model, system, user, maxTokens) {
   const started = Date.now();
   if (viaAgent(model)) {
@@ -678,6 +712,7 @@ const voice = LLM_ON ? require('./voice.js')({
   file: path.join(path.dirname(STATE_FILE), 'voice-log.json'),
   asrFile: path.join(path.dirname(STATE_FILE), 'voice-asr.json'),
   // 打电话时可选的"快速接话"：用备用模型（走中转站，通常一两秒）代替主模型来回答。默认关着，主人在识别设置里开。
+  ceoStream: CEO_STREAM_ON() ? ceoStream : null, ceoWarm: CEO_STREAM_ON() ? ceoWarm : null,
   fastCall: CEO_BACKUP ? (system, user, maxTokens) => llmCall(CEO_BACKUP, system, user, maxTokens) : null,
   fastModel: CEO_BACKUP ? showModel(CEO_BACKUP) : '', mainModel: showModel(CEO_MODEL),   // 语音识别的设置（主人在页面上填的豆包密钥和自定义词）
 }) : null;
