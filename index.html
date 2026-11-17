@@ -1064,7 +1064,7 @@ const MAP = {
       // 明细有变化（多了一个网站、一台服务器变红……）或者卡片大小变了，就把园区里的楼重新摆一遍。
       let t = 0;
       const again = () => { clearTimeout(t); t = setTimeout(() => this.layout(), 120); };
-      this.watch = new MutationObserver(again);
+      this.watch = new MutationObserver(() => { clearTimeout(t); this.layout(); });   // 明细变了：立刻摆好，不等——等的那一下就是闪烁
       this.sizes = new ResizeObserver(again);
     }
     for (const [k, p] of Object.entries(this.places)) {
@@ -1765,6 +1765,7 @@ function callClock() {
 function paintVoice(d) {
   voiceBusy = Boolean(d.busy);
   const items = d.items || [];
+  voiceLook(items);
   callFeed(items);
   $('voiceBox').hidden = !voiceShow;
   if (call.on) {
@@ -1786,6 +1787,19 @@ function paintVoice(d) {
   }).join('') : '<div class="voice-none">还没有通话记录。点"开始通话"后直接说话：说完停一下，CEO Agent 就会接话。</div>')
     + (voiceBusy ? '<div class="vm"><div class="who">CEO Agent</div><div class="bub dim">正在想…</div></div>' : '');
   $('voiceList').scrollTop = $('voiceList').scrollHeight;
+}
+// CEO Agent 回答一句话时去看了哪些部门的数据（网站、服务器……），地图上就有一个箭头从它开到那个园区再开回来。
+// 刚打开页面时已有的记录不画，只画新出现的。
+let lookSeen = null;
+function voiceLook(items) {
+  const first = lookSeen === null;
+  if (first) lookSeen = new Set();
+  for (const m of items) {
+    if (lookSeen.has(m.id)) continue;
+    lookSeen.add(m.id);
+    if (first || !Array.isArray(m.look) || !m.look.length) continue;
+    (async () => { for (const k of m.look) { if (!COLS[k]) continue; await downTo(k); await sleep(350); await upFrom(k); } })();
+  }
 }
 async function voiceLoad() { try { paintVoice(await voiceApi('log')); } catch (e) { /* 下一轮再取 */ } }
 function voicePolling() {
