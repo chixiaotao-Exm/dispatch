@@ -999,6 +999,24 @@ function soundSpy(w, name) {
     }
     if (w.speechSynthesis && !w.speechSynthesis.__spy) { w.speechSynthesis.__spy = true; const sp = w.speechSynthesis.speak.bind(w.speechSynthesis); w.speechSynthesis.speak = (u) => { tell('浏览器朗读', u && u.text); return sp(u); }; }
     if (w.Notification && !w.__spyN) { w.__spyN = true; const N = w.Notification; w.Notification = function (t, o) { tell('系统通知', t); return new N(t, o); }; w.Notification.permission = N.permission; w.Notification.requestPermission = N.requestPermission.bind(N); }
+    // ① 音频、视频元素开始播放（自动播放的也算）
+    if (!w.document.__spy) {
+      w.document.__spy = true;
+      for (const ev of ['play', 'playing']) w.document.addEventListener(ev, (e) => { const el = e.target; tell('元素事件 ' + ev + ' <' + String(el.tagName).toLowerCase() + (el.id ? ' id=' + el.id : '') + (el.autoplay ? ' 自动播放' : '') + (el.muted ? ' 静音' : '') + '>', String(el.currentSrc || el.src || '').slice(0, 150)); }, true);
+    }
+    // ② 程序生成的声音接到扬声器
+    const AN = w.AudioNode && w.AudioNode.prototype;
+    if (AN && !AN.__spy) {
+      AN.__spy = true;
+      const connect = AN.connect;
+      AN.connect = function (dest) { try { if (dest && dest === this.context.destination) tell('声音接到扬声器', this.constructor.name + '（声音引擎状态 ' + this.context.state + '）'); } catch (e) { /* 不影响原来的连接 */ } return connect.apply(this, arguments); };
+    }
+    // ③ 正在出声的元素
+    if (!w.__spyScan) {
+      w.__spyScan = true;
+      const told = new WeakSet();
+      w.setInterval(() => { try { for (const el of w.document.querySelectorAll('audio,video')) if (!el.paused && !el.muted && el.currentTime > 0 && !told.has(el)) { told.add(el); tell('发现正在播放的 <' + el.tagName.toLowerCase() + (el.id ? ' id=' + el.id : '') + '>', String(el.currentSrc || el.src || '').slice(0, 150)); } } catch (e) { /* 看不到就算了 */ } }, 150);
+    }
     // 这个面板里再嵌着的面板也装上
     for (const f of w.document.querySelectorAll('iframe')) {
       const sub = name + ' > ' + (f.id || f.title || 'iframe');
