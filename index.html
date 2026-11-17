@@ -176,11 +176,12 @@ details.srv summary:hover{color:var(--text)}
 .cols{--gap:24px;gap:var(--gap);grid-template-columns:minmax(0,1fr)}
 .bar{display:none}
 /* 七列。窗口不够宽时折成四列或两列，折行后顶部那条横线对不上，就隐藏。 */
-@media (min-width:1430px){.cols{grid-template-columns:repeat(8,minmax(0,1fr))}.bar{display:flex}}
+@media (min-width:1430px){.cols{grid-template-columns:repeat(7,minmax(0,1fr))}.bar{display:flex}}
 @media (min-width:900px) and (max-width:1429px){.cols{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media (min-width:560px) and (max-width:899px){.cols{grid-template-columns:repeat(2,minmax(0,1fr))}}
 /* 五列：横线两端各缩进半列的宽度。列宽 = (100% - 4 个间距) / 5，半列就是再除以 2。 */
-.bar{margin:0 calc((100% - 168px) / 16)}
+.bar{margin:0 calc((100% - 144px) / 14)}
+.cols>div[hidden]{display:none}
 .wrap{max-width:2900px}
 .cols>div:has(>.l-store){--glow:var(--c-store);--glow2:var(--c-store)}
 .cols>div:has(>.l-auto){--glow:var(--c-auto);--glow2:var(--c-auto)}
@@ -455,9 +456,10 @@ body.term-open{padding-bottom:var(--term-h,56vh)}
         <div class="big" id="autoBig">–</div>
         <div class="sub" id="autoSub"></div>
       </div>
+      <div class="rows" id="autoTaskRows"></div>
       <div class="rows" id="autoRows"></div>
     </div>
-    <div>
+    <div hidden>
       <div class="v l-agent"></div>
       <div class="tag t-agent" id="agentTag">↓ 待命</div>
       <div class="card" id="agentCard">
@@ -663,7 +665,7 @@ async function runComm(fromUser) {
   const agents = [
     { key: 'site', card: $('siteCard'), rows: $('siteRows'), color: cssVar('--c-site') },
     { key: 'music', card: $('musicCard'), rows: $('musicRows'), color: cssVar('--c-music') },
-    { key: 'agent', card: $('agentCard'), rows: null, color: cssVar('--c-agent') }, // 巡视只探测专用 Agent 在不在线，不逐行检查
+    { key: 'agent', card: $('autoCard'), rows: null, color: cssVar('--c-auto') }, // 巡视只探测专用 Agent 在不在线，不逐行检查
     { key: 'relay', card: $('relayCard'), rows: $('relayRows'), color: cssVar('--c-relay') },
     { key: 'srv', card: $('srvCard'), rows: $('svRows'), color: cssVar('--c-srv') },
   ];
@@ -703,7 +705,7 @@ async function runComm(fromUser) {
 //   Agent 提交命令给 CEO 审核 / CEO 给出结论 / 命令发往服务器、任务开始和结束、自动化触发任务、有事需要你决定。
 const quiet = () => document.hidden || matchMedia('(prefers-reduced-motion: reduce)').matches;
 const COLS = {
-  site: ['siteCard', '--c-site'], music: ['musicCard', '--c-music'], agent: ['agentCard', '--c-agent'], auto: ['autoCard', '--c-auto'],
+  site: ['siteCard', '--c-site'], music: ['musicCard', '--c-music'], agent: ['autoCard', '--c-auto'], auto: ['autoCard', '--c-auto'],   // 专用 Agent 那一列不显示了，和它有关的动画都落到自动化 Agent 这一列
   bot: ['botCard', '--c-bot'], store: ['storeCard', '--c-store'], relay: ['relayCard', '--c-relay'], srv: ['srvCard', '--c-srv'],
 };
 async function dot(pts, colorVar, ms, target) {
@@ -717,7 +719,7 @@ const fromBoss = () => dot(pathBossCeo(), '--c-boss', 700, $('ceoCard'));       
 // 从一列沿着横线走到另一列（比如自动化 Agent 把任务交给专用 Agent、命令发往服务器）。
 function between(a, b) {
   const bar = $('bar');
-  if (!bar.offsetWidth) return Promise.resolve();
+  if (!bar.offsetWidth || COLS[a][0] === COLS[b][0]) return Promise.resolve();
   const A = box($(COLS[a][0])), Z = box($(COLS[b][0])), y = box(bar).cy;
   return dot([{ x: A.cx, y: A.t }, { x: A.cx, y }, { x: Z.cx, y }, { x: Z.cx, y: Z.t }], COLS[a][1], 1200, $(COLS[b][0]));
 }
@@ -1614,7 +1616,7 @@ function renderLines(lines) {
 }
 
 function renderAgent(a) {
-  if (!a) { $('agentBig').textContent = '未配置'; $('agentSub').textContent = ''; $('agentDot').className = 'dot'; $('agentRows').innerHTML = ''; return; }
+  if (!a) { $('agentBig').textContent = '未配置'; $('agentSub').textContent = ''; $('agentDot').className = 'dot'; $('agentRows').innerHTML = ''; $('autoTaskRows').innerHTML = ''; return; }
   const up = a.up === true, unknown = a.up === null;
   $('agentBig').textContent = unknown ? '–' : up ? '在线' : '离线';
   $('agentSub').textContent = unknown ? '等待第一次巡检' : up ? '独立容器 · 可以写代码、跑脚本' : (a.error || '');
@@ -1625,12 +1627,15 @@ function renderAgent(a) {
   $('agentRows').dataset.key = key;
   const off = '<span style="color:var(--mute)">不可用</span>';
   setTimeout(loadTaskInfo, 0);
-  $('agentRows').innerHTML = `
+  // "发任务"放在自动化 Agent 这一列的最上面；专用 Agent 那一列不显示了（终端、文件、审批从底部面板的标签进）。
+  $('autoTaskRows').innerHTML = `
     <div class="row">
-      <div class="l1"><span>任务</span><span class="ms">${up ? '<button class="btn" data-term="tasks">发任务</button>' : off}</span></div>
-      <div class="l2"><span>写一句话交给它，在后台做完后看结果</span></div>
+      <div class="l1"><span>发任务</span><span class="ms">${up ? '<button class="btn" data-term="tasks">发任务</button>' : off}</span></div>
+      <div class="l2"><span>${up ? '写一句话交给专用 Agent，在后台做完后看结果' : '专用 Agent ' + (unknown ? '还在等第一次巡检' : '不在线：' + esc(a.error || '连不上'))}</span></div>
       <div class="l2"><span id="agentTaskInfo"></span></div>
-    </div>
+    </div>`;
+  setTrunks();
+  $('agentRows').innerHTML = `
     <div class="row">
       <div class="l1"><span>终端</span><span class="ms">${up ? '<button class="btn" data-term="term">打开终端</button>' : off}</span></div>
       <div class="l2"><span>在本页底部打开，直接和 Agent 对话；刷新或关掉页面，会话都还在</span></div>
