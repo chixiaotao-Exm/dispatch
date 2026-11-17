@@ -510,6 +510,77 @@ button:hover,.btn:hover{box-shadow:0 0 12px -2px var(--accent)}
 .ops-alert{border-radius:6px}
 ::selection{background:rgba(45,226,255,.3)}
 *{scrollbar-color:#24507f transparent}
+
+/* ================= 地图模式：整页是一张导航地图（屏幕够宽时）================= */
+#mapBox{display:none}
+.mapmode #mapBox{display:block;position:relative;margin-top:14px;height:calc(100vh / var(--zoom) - 112px);min-height:900px;border:1px solid var(--line);border-radius:8px;overflow:hidden;
+  background:radial-gradient(60% 55% at 50% 54%,#0c2038 0%,#071324 60%,#050d1a 100%)}
+/* 原来上下排列的那一套在地图模式里不显示（卡片已经挪进地图了） */
+.mapmode>.center,.mapmode>.v,.mapmode>#reportTag,.mapmode>.ceo-row,.mapmode>#bar,.mapmode>.cols{display:none}
+/* 道路和路线 */
+#mapSvg{position:absolute;inset:0;width:100%;height:100%}
+#mapSvg path{fill:none;vector-effect:non-scaling-stroke;stroke-linecap:round;stroke-linejoin:round}
+#mapSvg .blk rect{fill:rgba(45,226,255,.028);stroke:rgba(90,170,230,.14);vector-effect:non-scaling-stroke}
+#mapSvg .river{stroke:#0a2a4a;stroke-width:34;opacity:.9}
+#mapSvg .park rect{fill:rgba(46,230,166,.06);stroke:rgba(46,230,166,.16);vector-effect:non-scaling-stroke}
+#mapSvg .rd{stroke:#1a3e66;stroke-width:13}
+#mapSvg .rd.s{stroke:#15304f;stroke-width:7}
+#mapSvg .rt-base{stroke:#1f4a78;stroke-width:16}
+#mapSvg .rt{stroke:color-mix(in srgb,var(--rc) 82%,#06101c);stroke-width:8;filter:drop-shadow(0 0 5px var(--rc))}
+#mapSvg .rt-flow{stroke:#fff;stroke-width:2;stroke-dasharray:6 24;animation:mapFlow 1.5s linear infinite;opacity:.9}
+@keyframes mapFlow{to{stroke-dashoffset:30}}
+@media (prefers-reduced-motion:reduce){#mapSvg .rt-flow,.place.puck .pk::after{animation:none}}
+/* 地点：一个钉在路上的点，上面是它的卡片 */
+.place{position:absolute;width:0;height:0;z-index:2}
+.place[hidden]{display:none}
+.place::before{content:"";position:absolute;left:-8px;top:-8px;width:16px;height:16px;border-radius:50%;background:#06101e;border:4px solid var(--glow);box-shadow:0 0 12px var(--glow);box-sizing:border-box}
+.place::after{content:"";position:absolute;left:-1px;bottom:7px;width:2px;height:14px;background:var(--glow);opacity:.8}
+.place>.card{position:absolute;left:-112px;bottom:20px;width:224px;min-width:0;max-width:none;padding:10px 13px;animation-delay:0s}
+.place.has-detail>.card{cursor:pointer}
+.place.has-detail>.card:hover,.place.open>.card{box-shadow:0 0 0 1px var(--glow),0 0 22px -2px var(--glow)}
+.place.has-detail>.card:focus-visible{outline:2px solid var(--glow);outline-offset:3px}
+.place>.card .big{font-size:25px}
+.place>.card .sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.place.boss>.card{left:-150px;width:300px;min-width:0}
+.place.line>.card{left:-125px;width:250px}
+.place.line>.card::after,.place .up-v,.place .up-h{display:none}
+/* 路线从上面过来的地点，卡片放在地点下方，不压住路 */
+.place.below::after{bottom:auto;top:7px}
+.place.below>.card{bottom:auto;top:20px}
+/* 当前位置：CEO Agent */
+.place.puck{z-index:3}
+.place.puck::before,.place.puck::after{display:none}
+.place.puck .pk{position:absolute;left:-23px;top:-23px;width:46px;height:46px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffd98f,#ff9a2e);box-shadow:0 0 0 4px rgba(255,181,71,.22),0 0 26px rgba(255,181,71,.7)}
+.place.puck .pk::before{content:"";position:absolute;inset:11px;background:#2a1500;clip-path:polygon(50% 0,100% 100%,50% 74%,0 100%)}
+.place.puck .pk::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:2px solid #ffb547;animation:mapPing 2.4s ease-out infinite}
+@keyframes mapPing{from{transform:scale(.9);opacity:.9}to{transform:scale(2.3);opacity:0}}
+.place.puck .lb{position:absolute;left:-70px;top:30px;width:140px;text-align:center;font-family:var(--hud);font-size:13px;letter-spacing:.14em;color:#ffd98f;text-shadow:0 0 10px rgba(0,0,0,.9),0 0 3px #000}
+/* 左右两块信息面板：左边是 CEO Agent（像导航的指引面板），右边是它做过的事和额度 */
+#hudLeft,#hudRight{position:absolute;top:14px;width:400px;display:flex;flex-direction:column;gap:12px;z-index:4;max-height:calc(100% - 28px);overflow:auto;scrollbar-width:none}
+#hudLeft{left:14px;max-height:62%}#hudRight{right:14px;max-height:50%}
+#hudRight[hidden]{display:none}
+#hudLeft>.card,#hudRight>.card{position:static;width:auto;min-width:0;max-width:none;margin:0;flex:none}
+.mapmode .ceolog .list{max-height:150px}
+/* 点开一个地点后，右边的明细面板 */
+#placePanel{position:absolute;right:14px;top:14px;bottom:14px;width:470px;z-index:5;display:flex;flex-direction:column;border:1px solid color-mix(in srgb,var(--glow) 55%,var(--line));border-radius:8px;
+  background:linear-gradient(165deg,rgba(16,36,63,.97),rgba(7,17,31,.97));box-shadow:0 0 30px -6px var(--glow),0 20px 60px rgba(0,0,0,.6)}
+#placePanel[hidden]{display:none}
+#placePanel .pp-head{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);flex:none}
+#placePanel .pp-head strong{font-size:14px;letter-spacing:.14em;color:var(--glow)}
+#placePanel .pp-head button{margin-left:auto;padding:3px 12px;font-size:12px}
+#placePanel .pp-body{flex:1;overflow:auto;padding:22px 16px 16px 4px;scrollbar-width:thin}
+#placePanel .pp-body:not(:has(.row))::after{content:"这个地点现在没有更多明细。";display:block;padding:8px 14px;color:var(--mute);font-size:13px}
+#placePanel .btn{border-color:var(--glow);color:var(--glow)}
+
+/* 地图上的小东西：路名、指南针、比例尺 */
+.map-lb{position:absolute;z-index:1;font-size:12px;letter-spacing:.3em;color:#4d79a6;white-space:nowrap;pointer-events:none;text-shadow:0 0 6px #06101e,0 0 2px #06101e}
+.map-lb.v{writing-mode:vertical-rl}
+.map-compass{position:absolute;left:18px;bottom:18px;z-index:1;width:54px;height:54px;border-radius:50%;border:1px solid #2a5a8c;background:rgba(6,16,30,.7);pointer-events:none}
+.map-compass::before{content:"";position:absolute;left:21px;top:8px;width:12px;height:19px;background:#ff4d6d;clip-path:polygon(50% 0,100% 100%,0 100%)}
+.map-compass::after{content:"";position:absolute;left:21px;bottom:8px;width:12px;height:19px;background:#8fb2d4;clip-path:polygon(0 0,100% 0,50% 100%)}
+.map-compass b{position:absolute;left:0;right:0;top:-18px;text-align:center;font:500 12px var(--hud);color:#8fb2d4}
+.map-scale{position:absolute;left:88px;bottom:22px;z-index:1;width:110px;height:7px;border:1px solid #4d79a6;border-top:0;pointer-events:none}
+.map-scale span{position:absolute;left:0;right:0;bottom:8px;text-align:center;font:12px var(--hud);color:#4d79a6;letter-spacing:.06em}
 </style>
 </head>
 <body>
@@ -526,6 +597,19 @@ button:hover,.btn:hover{box-shadow:0 0 12px -2px var(--accent)}
     </div>
   </div>
 
+  <!-- 地图模式：道路和路线（svg）、左右信息面板、各个地点、点开地点后的明细面板 -->
+  <div id="mapBox">
+    <svg id="mapSvg" viewBox="0 0 1000 560" preserveAspectRatio="none" aria-hidden="true"></svg>
+    <span class="map-lb" style="left:12%;top:51%">调度大道</span><span class="map-lb" style="left:80%;top:51%">调度大道</span>
+    <span class="map-lb v" style="left:51.4%;top:24%">汇报大道</span><span class="map-lb v" style="left:51.4%;top:88%">汇报大道</span>
+    <span class="map-lb" style="left:27%;top:31%">线路街</span><span class="map-lb" style="left:84%;top:66.5%">任务街</span><span class="map-lb" style="left:6%;top:66.5%">任务街</span>
+    <div class="map-compass" aria-hidden="true"><b>N</b></div>
+    <div id="mapPlaces"></div>
+    <div class="place puck" style="left:50%;top:53.5714%" aria-hidden="true"><div class="pk"></div><div class="lb">CEO Agent</div></div>
+    <div id="hudLeft"></div>
+    <div id="hudRight"></div>
+    <aside id="placePanel" aria-label="地点明细" hidden><div class="pp-head"><strong id="ppTitle"></strong><button id="ppClose">关闭</button></div><div class="pp-body" id="ppBody"></div></aside>
+  </div>
   <div class="card ceolog" id="ceoLogCard" hidden>
     <div class="head"><strong>CEO Agent 做过的事</strong><span class="tabs"><button data-ceof="act" class="on">审批</button><button data-ceof="all">全部</button></span></div>
     <div class="list" id="ceoLogList"></div>
@@ -732,6 +816,143 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 
 // 通信动画：每轮巡视时按"派发 → 汇报 → 上报"的顺序点亮对应的连接线。
 const wrap = $('wrap');
+// ---- 地图模式：整页是一张导航地图 ----
+// 每个 Agent 是地图上的一个地点，CEO Agent 是"当前位置"；从 CEO Agent 到每个地点有一条沿着道路走的规划路线，
+// 真实发生的通讯就是导航箭头在这些路线上行驶。点一个地点，右边展开它的明细。
+// 屏幕不够宽时不进入地图模式，还是原来上下排列的样子。地图里用的都是原来那些卡片（只是挪了位置），所以数据怎么填都不用改。
+const MAP = {
+  on: false, W: 1000, H: 560, C: [500, 300], moved: [], routes: {}, open: '',
+  // 地点的坐标（地图是 1000 × 560 的格子），以及从 CEO Agent 出发、沿道路走到它要经过的拐点。
+  places: {
+    boss:  { card: 'bossCard', at: [500, 78], via: [], color: '--c-boss', cls: 'boss' },
+    lineL: { card: 'lineLeftCard', at: [338, 188], via: [[500, 188]], color: '--c-pojia', cls: 'line', side: 'lineLeft' },
+    lineR: { card: 'lineRightCard', at: [662, 188], via: [[500, 188]], color: '--c-qiye', cls: 'line', side: 'lineRight' },
+    site:  { card: 'siteCard', at: [92, 440], via: [[92, 300]], color: '--c-site', detail: true },
+    music: { card: 'musicCard', at: [236, 392], via: [[236, 300]], color: '--c-music', detail: true },
+    auto:  { card: 'autoCard', at: [368, 468], via: [[500, 385], [368, 385]], color: '--c-auto', detail: true },
+    bot:   { card: 'botCard', at: [500, 446], via: [], color: '--c-bot', detail: true },
+    store: { card: 'storeCard', at: [632, 468], via: [[500, 385], [632, 385]], color: '--c-store', detail: true },
+    relay: { card: 'relayCard', at: [764, 392], via: [[764, 300]], color: '--c-relay', detail: true },
+    srv:   { card: 'srvCard', at: [908, 440], via: [[908, 300]], color: '--c-srv', detail: true },
+  },
+  keyOf(card) { return Object.keys(this.places).find((k) => this.places[k].card === (card && card.id)); },
+  // 把一串拐点连成一条路，拐弯处走圆角。
+  d(pts, r = 34) {
+    let s = 'M' + pts[0][0] + ' ' + pts[0][1];
+    for (let i = 1; i < pts.length; i++) {
+      const p = pts[i], a = pts[i - 1], b = pts[i + 1];
+      if (!b) { s += ' L' + p[0] + ' ' + p[1]; break; }
+      const la = Math.hypot(p[0] - a[0], p[1] - a[1]), lb = Math.hypot(b[0] - p[0], b[1] - p[1]), q = Math.min(r, la / 2, lb / 2);
+      s += ' L' + (p[0] + (a[0] - p[0]) * q / la).toFixed(1) + ' ' + (p[1] + (a[1] - p[1]) * q / la).toFixed(1)
+        + ' Q' + p[0] + ' ' + p[1] + ' ' + (p[0] + (b[0] - p[0]) * q / lb).toFixed(1) + ' ' + (p[1] + (b[1] - p[1]) * q / lb).toFixed(1);
+    }
+    return s;
+  },
+  build() {
+    const P = this.places, C = this.C, road = (pts, cls) => `<path class="rd ${cls || ''}" d="${this.d(pts)}"/>`;
+    let svg = '<path class="river" d="M-20 150 C140 120 210 250 330 240 S470 120 600 110 S860 190 1020 60"/>'
+      + '<g class="park"><rect x="560" y="210" width="150" height="70" rx="10"/><rect x="120" y="470" width="90" height="70" rx="10"/><rect x="830" y="320" width="60" height="50" rx="10"/></g>'
+      + '<g class="blk">' + [[130, 30, 150, 70], [300, 30, 160, 60], [540, 20, 120, 60], [720, 30, 160, 110], [30, 210, 180, 70], [260, 205, 200, 75], [760, 210, 200, 70], [120, 320, 90, 50], [262, 320, 80, 50], [530, 320, 200, 50], [395, 400, 80, 50], [525, 400, 80, 50], [690, 420, 50, 70], [260, 420, 80, 80], [790, 470, 90, 60], [20, 470, 50, 60]]
+        .map((b) => `<rect x="${b[0]}" y="${b[1]}" width="${b[2]}" height="${b[3]}" rx="4"/>`).join('') + '</g>';
+    // 没有路线经过的普通道路：让它看起来是一座城市，而不只是几条线。
+    svg += road([[0, 300], [1000, 300]]) + road([[500, 0], [500, 560]])
+      + road([[0, 188], [1000, 188]], 's') + road([[0, 385], [1000, 385]], 's')
+      + road([[236, 0], [236, 300]], 's') + road([[764, 0], [764, 300]], 's')
+      + '<path class="rd s" d="M0 95 C180 80 300 60 400 0"/><path class="rd s" d="M1000 150 C860 140 760 60 700 0"/>'
+      + '<path class="rd s" d="M92 300 C92 215 150 188 236 188"/><path class="rd s" d="M908 300 C908 215 850 188 764 188"/>'
+      + '<path class="rd s" d="M236 392 C236 480 300 530 368 560"/><path class="rd s" d="M764 392 C764 480 700 530 632 560"/>'
+      + '<path class="rd" d="M0 540 C250 500 420 546 500 528 S780 500 1000 540"/>'
+      + '<path class="rd s" d="M150 300 C150 110 850 110 850 300" style="opacity:.6"/>';
+    let base = '', lit = '', flow = '';
+    for (const [k, p] of Object.entries(P)) {
+      const d = this.d([C, ...p.via, p.at]);
+      base += `<path class="rt-base" data-rt="${k}" d="${d}"/>`;
+      lit += `<path class="rt" id="mapRoute-${k}" data-rt="${k}" style="--rc:var(${p.color})" d="${d}"/>`;
+      flow += `<path class="rt-flow" data-rt="${k}" d="${d}"/>`;
+    }
+    $('mapSvg').innerHTML = svg + base + lit + flow;
+    for (const k of Object.keys(P)) this.routes[k] = $('mapRoute-' + k);
+  },
+  // 把一个节点挪到地图里的某个容器，并记住它原来在哪，退出地图模式时放回去。
+  move(el, to) { this.moved.push({ el, parent: el.parentNode, next: el.nextSibling }); to.appendChild(el); },
+  enter() {
+    if (this.on) return;
+    this.on = true;
+    wrap.classList.add('mapmode');
+    if (!$('mapSvg').firstChild) this.build();
+    this.move($('ceoCard'), $('hudLeft'));
+    this.move($('ceoLogCard'), $('hudRight'));
+    this.move($('usageCard'), $('hudRight'));
+    for (const [k, p] of Object.entries(this.places)) {
+      const card = $(p.card), el = document.createElement('div');
+      el.className = 'place ' + (p.cls || '') + (p.detail ? ' has-detail below' : '');
+      el.id = 'place-' + k;
+      el.style.left = p.at[0] / 10 + '%'; el.style.top = p.at[1] / 5.6 + '%';
+      el.style.setProperty('--glow', `var(${p.color})`); el.style.setProperty('--glow2', `var(${p.color})`);
+      p.col = card.parentNode;   // 这个地点原来所在的那一列，明细行都在里面
+      this.move(card, el);
+      if (p.detail) { card.setAttribute('role', 'button'); card.tabIndex = 0; card.title = '点开看这个地点的明细'; card.dataset.place = k; }
+      $('mapPlaces').appendChild(el);
+    }
+    this.sync();
+  },
+  exit() {
+    if (!this.on) return;
+    this.close();
+    for (const m of this.moved.reverse()) m.parent.insertBefore(m.el, m.next && m.next.parentNode === m.parent ? m.next : null);
+    this.moved = [];
+    for (const p of Object.values(this.places)) { const c = $(p.card); if (p.detail) { c.removeAttribute('role'); c.removeAttribute('tabindex'); c.removeAttribute('title'); delete c.dataset.place; } }
+    $('mapPlaces').innerHTML = '';
+    wrap.classList.remove('mapmode');
+    this.on = false;
+    setTrunks(); setDrops();
+  },
+  // 没配置的线路 Agent 不出现在地图上，它的路线也不点亮。
+  sync() {
+    if (!this.on) return;
+    for (const [k, p] of Object.entries(this.places)) {
+      if (!p.side) continue;
+      const off = $(p.side).classList.contains('off');
+      $('place-' + k).hidden = off;
+      for (const el of document.querySelectorAll(`#mapSvg [data-rt="${k}"]`)) el.style.display = off ? 'none' : '';
+    }
+  },
+  // 一条路线上的一串点（换算成和光点同一套坐标）。back 为 true 时是从地点开回 CEO Agent。
+  path(key, back) {
+    const el = this.routes[key];
+    if (!el) return null;
+    const L = el.getTotalLength(), n = Math.max(6, Math.round(L / 12)), r = $('mapSvg').getBoundingClientRect(), w = wrap.getBoundingClientRect(), z = w.width / wrap.offsetWidth || 1, pts = [];
+    for (let i = 0; i <= n; i++) { const p = el.getPointAtLength(L * i / n); pts.push({ x: (r.left + p.x / this.W * r.width - w.left) / z, y: (r.top + p.y / this.H * r.height - w.top) / z }); }
+    return back ? pts.reverse() : pts;
+  },
+  // 点一个地点：把它那一列的明细行搬进右边的面板；关掉时搬回去。
+  show(key) {
+    const p = this.places[key];
+    if (!p || !p.detail) return;
+    if (this.open === key) return this.close();
+    this.close();
+    this.open = key;
+    const panel = $('placePanel');
+    panel.style.setProperty('--glow', `var(${p.color})`); panel.style.setProperty('--glow2', `var(${p.color})`); panel.style.setProperty('--tree', `color-mix(in srgb,var(${p.color}) 35%,var(--line))`);
+    $('ppTitle').textContent = ($(p.card).querySelector('.head') || $(p.card)).textContent.trim();
+    this.rows = [...p.col.querySelectorAll(':scope > .rows')].map((el) => ({ el, next: el.nextSibling }));
+    for (const r of this.rows) $('ppBody').appendChild(r.el);
+    panel.hidden = false; $('hudRight').hidden = true;
+    $('place-' + key).classList.add('open');
+    setTrunks();
+    $('ppClose').focus();
+  },
+  close() {
+    if (!this.open) return;
+    const p = this.places[this.open];
+    for (const r of this.rows || []) p.col.insertBefore(r.el, r.next && r.next.parentNode === p.col ? r.next : null);
+    this.rows = [];
+    $('placePanel').hidden = true; $('hudRight').hidden = false;
+    const el = $('place-' + this.open); if (el) el.classList.remove('open');
+    this.open = '';
+  },
+  fit() { if (innerWidth >= 1280 && innerHeight >= 600) this.enter(); else this.exit(); },
+};
 const TAGS = { boss: $('reportTag'), site: $('siteTag'), music: $('musicTag'), agent: $('agentTag'), bot: $('botTag'), auto: $('autoTag'), relay: $('relayTag'), srv: $('srvTag') };
 const IDLE = { boss: '↑ 有异常才找你', site: '↓ 定时巡检', music: '↓ 定时巡检', agent: '↓ 待命', bot: '↓ 待命', auto: '↓ 到点或告警时派活', relay: '↓ 每分钟读数', srv: '↓ 定时巡检' };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -770,8 +991,10 @@ async function fly(points, color, ms, target, small) {
       if (heading !== null) next = heading + ((next - heading + 540) % 360 - 180);   // 转最小的那个角度，不绕远
     }
     if (heading === null) heading = next === null ? 0 : next;
+    const sharp = Math.abs(next - heading) > 30;
+    if (!sharp) heading = next;
     navFrames.push({ transform: `translate(${p.x}px,${p.y}px) rotate(${heading}deg)`, offset: at(i) });
-    if (next !== heading && n) { heading = next; navFrames.push({ transform: `translate(${p.x}px,${p.y}px) rotate(${heading}deg)`, offset: Math.min(1, at(i) + 0.03) }); }
+    if (sharp && n) { heading = next; navFrames.push({ transform: `translate(${p.x}px,${p.y}px) rotate(${heading}deg)`, offset: Math.min(at(i + 1), at(i) + 0.03) }); }
   }
   const runs = ['nav', 't1', 't2'].map(async (cls, i) => {
     await sleep(i * 70);
@@ -796,6 +1019,7 @@ async function fly(points, color, ms, target, small) {
 }
 const rev = (pts) => pts.slice().reverse();
 function pathBossCeo() {
+  if (MAP.on) return MAP.path('boss', true);
   const b = box($('bossCard')), c = box($('ceoCard'));
   return [{ x: b.cx, y: b.b }, { x: c.cx, y: c.t }];
 }
@@ -804,6 +1028,7 @@ const LINE_SIDES = { left: { wrap: 'lineLeft', card: 'lineLeftCard', color: '--c
 function pathLineCeo(side) {
   const m = LINE_SIDES[side];
   if ($(m.wrap).classList.contains('off') || !$(m.card).offsetWidth) return null;
+  if (MAP.on) return MAP.path(side === 'left' ? 'lineL' : 'lineR', true);
   const a = box($(m.card)), c = box($('ceoCard'));
   if (Math.abs(a.cy - c.cy) > Math.max(a.b - a.t, c.b - c.t)) return null; // 窄屏下卡片上下堆叠，不走横线
   return side === 'left' ? [{ x: a.r, y: a.cy }, { x: c.l, y: a.cy }] : [{ x: a.l, y: a.cy }, { x: c.r, y: a.cy }];
@@ -811,6 +1036,7 @@ function pathLineCeo(side) {
 // 线路 Agent 向上走到创始人卡片的侧边。没有画那条线时返回 null。
 function pathLineBoss(side) {
   const m = LINE_SIDES[side], card = $(m.card);
+  if (MAP.on) return pathLineCeo(side) ? pathLineCeo(side).concat(MAP.path('boss')) : null;
   if (!pathLineCeo(side) || !(parseFloat(card.style.getPropertyValue('--reach')) > 0)) return null;
   const a = box(card), boss = box($('bossCard'));
   return [{ x: a.cx, y: a.t }, { x: a.cx, y: boss.cy }, { x: side === 'left' ? boss.l : boss.r, y: boss.cy }];
@@ -818,17 +1044,20 @@ function pathLineBoss(side) {
 // 线路 Agent 经垂线和横线走到下面某一列的卡片。横线不显示时返回 null。
 function pathLineDown(side, card) {
   const m = LINE_SIDES[side], bar = $('bar');
+  if (MAP.on) return pathLineCeo(side) && MAP.keyOf(card) ? pathLineCeo(side).concat(MAP.path(MAP.keyOf(card))) : null;
   if ($(m.wrap).classList.contains('off') || !$(m.card).offsetWidth || !bar.offsetWidth) return null;
   const a = box($(m.card)), t = box(card), y = box(bar).cy;
   return [{ x: a.cx, y: a.b }, { x: a.cx, y }, { x: t.cx, y }, { x: t.cx, y: t.t }];
 }
 function pathCeoAgent(card) {
+  if (MAP.on) return MAP.path(MAP.keyOf(card));
   const c = box($('ceoCard')), a = box(card), bar = $('bar');
   if (!bar.offsetWidth) return [{ x: c.cx, y: c.b }, { x: a.cx, y: a.t }];
   const y = box(bar).cy;
   return [{ x: c.cx, y: c.b }, { x: c.cx, y }, { x: a.cx, y }, { x: a.cx, y: a.t }];
 }
 function pathsAgentRows(card, rowsEl) {
+  if (MAP.on) return [];   // 明细行在地图上不展开，不画到每一行的光点
   const a = box(card);
   return [...rowsEl.querySelectorAll('.row')].map((row) => {
     const r = box(row), x = r.l - 25;
@@ -900,7 +1129,9 @@ const fromBoss = () => dot(pathBossCeo(), '--c-boss', 700, $('ceoCard'));       
 // 从一列沿着横线走到另一列（比如自动化 Agent 把任务交给专用 Agent、命令发往服务器）。
 function between(a, b) {
   const bar = $('bar');
-  if (!bar.offsetWidth || COLS[a][0] === COLS[b][0]) return Promise.resolve();
+  if (COLS[a][0] === COLS[b][0]) return Promise.resolve();
+  if (MAP.on) return dot(MAP.path(MAP.keyOf($(COLS[a][0])), true).concat(MAP.path(MAP.keyOf($(COLS[b][0])))), COLS[a][1], 1700, $(COLS[b][0]));
+  if (!bar.offsetWidth) return Promise.resolve();
   const A = box($(COLS[a][0])), Z = box($(COLS[b][0])), y = box(bar).cy;
   return dot([{ x: A.cx, y: A.t }, { x: A.cx, y }, { x: Z.cx, y }, { x: Z.cx, y: Z.t }], COLS[a][1], 1200, $(COLS[b][0]));
 }
@@ -1983,6 +2214,14 @@ $('refresh').addEventListener('click', async () => {
   $('refresh').textContent = '立即巡视';
 });
 setInterval(() => { $('clock').textContent = new Date().toLocaleTimeString('zh-CN'); }, 1000);
+// ---- 地图模式的开关和点击 ----
+MAP.fit();
+addEventListener('resize', () => MAP.fit());
+setInterval(() => MAP.sync(), 2000);
+$('mapPlaces').addEventListener('click', (e) => { const c = e.target.closest('[data-place]'); if (c && !e.target.closest('button,a')) MAP.show(c.dataset.place); });
+$('mapPlaces').addEventListener('keydown', (e) => { const c = e.target.closest('[data-place]'); if (c && e.target === c && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); MAP.show(c.dataset.place); } });
+$('ppClose').addEventListener('click', () => MAP.close());
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && MAP.open && $('dlgBack').hidden && $('todoBack').hidden) MAP.close(); });
 setInterval(load, 15000);
 load();
 </script>
