@@ -74,13 +74,14 @@ module.exports = function (ctx) {
     return {};
   }
   function openStream(sid, format) {
-    const s = { ws: null, open: false, pending: [], text: '', definite: false, final: false, error: '', at: Date.now(), waiters: [] };
+    const s = { ws: null, open: false, pending: [], text: '', definite: false, final: false, error: '', at: Date.now(), born: Date.now(), waiters: [] };
     streams.set(sid, s);
     const wake = () => { for (const w of s.waiters.splice(0)) w(); };
     const fail = (msg, code) => {
       if (s.error || s.final || s.done) return;   // 已经收尾的那条连接再断开，不算出错
       s.error = msg;
       if (code === 45000001 && asrState.streamWords && asr.hotwords.length) asrState.streamWords = false;   // 多半是不收自定义词：下一句不带了
+      if (code === 45000081) { try { s.ws.close(); } catch (e) { /* 已经断了 */ } return wake(); }   // 页面那边没再送声音（挂断了，或者只是一声杂音）：不算故障
       asrState.lastError = '流式识别：' + msg; asrState.lastErrorAt = Date.now();
       console.log('[语音识别] 流式这一句没成：' + msg);
       try { s.ws.close(); } catch (e) { /* 已经断了 */ }
@@ -97,7 +98,7 @@ module.exports = function (ctx) {
       s.ws = ws;
       ws.onopen = () => {
         if (s.ws !== ws) return;
-        opened = true; s.open = true; asrState.streamRes = order[i];
+        opened = true; s.open = true; s.res = order[i]; asrState.streamRes = order[i];
         // 自定义词：流式接口只收很少的词，挑排在前面的，总长度控制在 60 个字以内。
         const words = [];
         let len = 0;
@@ -144,6 +145,7 @@ module.exports = function (ctx) {
     const out = { text: s.text, definite: s.definite, final: s.final, error: s.error };
     if (last || s.error || s.definite || s.final) {
       if (!s.error) { asrState.lastOk = Date.now(); asrState.lastError = ''; }
+      if (!String(sid).startsWith('test-')) console.log(`[语音识别] 流式一句：${s.res === 'volc.seedasr.sauc.duration' ? '豆包流式识别 2.0' : s.res === 'volc.bigasr.sauc.duration' ? '豆包流式识别 1.0' : '没连上'}，${s.error ? '出错' : s.definite && !last ? '豆包判断说完' : '本地等够后收尾'}，认出 ${s.text.length} 个字，用时 ${((Date.now() - s.born) / 1000).toFixed(1)} 秒`);
       endStream(sid);
     }
     return out;

@@ -1851,6 +1851,7 @@ function callListen() { call.pre = []; call.rec = []; call.speaking = false; cal
 async function callSpeak(item) {
   const hang = Boolean(item && item.hang), text = hang ? item.text : item;
   const id = ++call.speakId;
+  call.speakAt = Date.now() + 500;   // 大约半秒后才真正出声
   call.loudMs = 0; call.pre = [];
   voiceState('speak');
   const done = () => { if (call.speakId !== id) return; call.audio = null; if (!call.on) return; if (hang) return callStop(); callListen(); callPump(); };
@@ -1861,6 +1862,7 @@ async function callSpeak(item) {
     call.audio = a;
     a.onended = a.onerror = () => { URL.revokeObjectURL(a.src); done(); };
     await a.play();
+    call.speakAt = Date.now();
   } catch (e) {
     if (call.speakId !== id) return;
     // 服务器那边念不出来时，退回用浏览器自带的朗读。
@@ -1968,7 +1970,7 @@ function callFrame(input, rate) {
     call.pre.push(out);
     if (call.pre.length > 18) call.pre.shift();
     if (rms > Math.max(0.05, call.noise * 7)) call.loudMs += ms; else call.loudMs = Math.max(0, call.loudMs - ms);
-    if (call.loudMs >= 320) callBarge(now);
+    if (call.loudMs >= 450 && now - call.speakAt > 1200) callBarge(now);
     return;
   }
   if (now < call.muteUntil) return;
@@ -1985,7 +1987,7 @@ function callFrame(input, rate) {
   call.rec.push(out);
   if (rms > thr) call.lastLoud = now;
   // 用流式识别时，一句话说完没有主要由豆包判断；这里的停顿时间放长一些，只当作兜底。
-  if (now - call.lastLoud > (call.st ? 1800 : 1000) || now - call.startAt > 60000) {
+  if (now - call.lastLoud > (call.st ? 1300 : 1000) || now - call.startAt > 60000) {
     const frames = call.rec, spoke = call.lastLoud - call.startAt;
     call.rec = []; call.speaking = false; call.loudMs = 0;
     if (spoke < 200) { streamDrop(); $('voiceStateText').textContent = '正在听，直接说话就行'; return callPump(); }
