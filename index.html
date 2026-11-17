@@ -2410,10 +2410,7 @@ $('termReload').addEventListener('click', () => { PANES[pane].frame.src = PANES[
 $('deskpcFrame').addEventListener('load', () => {
   try { $('deskpcFrame').contentWindow.addEventListener('error', (e) => { if (/ResizeObserver loop/i.test(String(e.message || ''))) { e.stopImmediatePropagation(); e.preventDefault(); } }, true); } catch (e) { /* 桌面没加载出来 */ }
   // 上面那一步有时拦不住（远程桌面程序的处理排在前面）：再盯着那个红框，里面是这一种提示就立刻收起来。
-  try {
-    const f = $('deskpcFrame'), box = f.contentDocument.getElementById('noVNC_fallback_error');
-    if (box) { const hide = () => { if (/ResizeObserver loop/i.test(box.textContent)) box.classList.remove('noVNC_open'); }; new f.contentWindow.MutationObserver(hide).observe(box, { attributes: true, childList: true, subtree: true }); hide(); }
-  } catch (e) { /* 桌面没加载出来 */ }
+  try { const d = $('deskpcFrame').contentDocument, st = d.createElement('style'); st.textContent = '#noVNC_fallback_error{display:none!important}'; d.head.appendChild(st); } catch (e) { /* 桌面没加载出来 */ }
 });
 // 网页终端自带"重新加载此网站？"的离开提醒。终端的会话保存在服务器上，刷新或关掉页面都不会丢，
 // 所以每次终端加载好之后，抢在它前面把这个提醒拦掉。（文件和规则页面里"有没保存的修改"的提醒不受影响。）

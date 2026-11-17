@@ -294,13 +294,7 @@ function desk(show) {
 // 画面跟着窗口缩放时，浏览器会报一句无害的提示（ResizeObserver loop…），远程桌面程序却把它当成大错，弹出红框挡住画面。
 // 桌面每次加载好之后盯着那个红框：里面是这一种提示就立刻收起来。
 $('desk').addEventListener('load', () => {
-  try {
-    const f = $('desk'), box = f.contentDocument.getElementById('noVNC_fallback_error');
-    if (!box) return;
-    const hide = () => { if (/ResizeObserver loop/i.test(box.textContent)) box.classList.remove('noVNC_open'); };
-    new f.contentWindow.MutationObserver(hide).observe(box, { attributes: true, childList: true, subtree: true });
-    hide();
-  } catch (e) { /* 桌面没加载出来 */ }
+  try { const d = $('desk').contentDocument, st = d.createElement('style'); st.textContent = '#noVNC_fallback_error{display:none!important}'; d.head.appendChild(st); } catch (e) { /* 桌面没加载出来 */ }
 });
 $('bDesk').onclick = () => desk($('deskp').hidden);
 $('deskClose').onclick = () => desk(false);
