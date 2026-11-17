@@ -1824,7 +1824,10 @@ async function voiceSend(text) {
   if (!text) return false;
   call.sending = true;
   try {
-    await voiceApi('say', { body: JSON.stringify({ text, call: call.on }) });
+    for (let i = 0; ; i++) {
+      try { await voiceApi('say', { body: JSON.stringify({ text, call: call.on }) }); break; }
+      catch (e) { if (!call.on || i >= 24 || !/还在处理上一句/.test(e.message)) throw e; await sleep(600); }   // 她还在想上一句：等她空出来再送，不丢
+    }
     voiceBusy = true; voiceTip('');
     try { fromBoss(); } catch (e) { /* 动画画不出来不要紧 */ }
     return true;
@@ -1911,10 +1914,16 @@ async function callSpeak(item) {
   }
 }
 // 认出一句话之后：太短的当作杂音；是"挂断"就挂；否则交给 CEO Agent。
+// 这句话值不值得交给 CEO：去掉标点后一个字都没有、或者只是一个语气词（嗯、啊、呃……多半是杂音被认成的），就当没听到。
+// "好""对""送""停"这样一个字的回答是算数的。
+function voiceWorthSending(text) {
+  const bare = String(text || '').replace(/[\s。，,.!！?？~、…]/g, '');
+  return bare.length >= 2 || (bare.length === 1 && !/[嗯啊呃额哦唔噢哎唉嘿呀哈]/.test(bare));
+}
 async function callHeard(text) {
   if (!call.on) return;
   text = String(text || '').trim();
-  if (text.replace(/[\s。，,.!！?？~、]/g, '').length < 2) return callListen();
+  if (!voiceWorthSending(text)) return callListen();
   if (VOICE_BYE.test(text)) return callStop();
   voiceState('think');
   if (!(await voiceSend(text))) callListen();
@@ -1978,7 +1987,7 @@ async function callUtterance(frames) {
     const r = await voiceApi('stt', { body: wavBlob(frames), type: 'application/octet-stream' });
     if (!call.on) return;
     const text = String(r.text || '').trim();
-    if (text.replace(/[\s。，,.!！?？~、]/g, '').length < 2) return callListen();   // 咳嗽、杂音之类
+    if (!voiceWorthSending(text)) return callListen();   // 咳嗽、杂音之类
     if (VOICE_BYE.test(text)) return callStop();
     voiceState('think');
     if (!(await voiceSend(text))) callListen();
@@ -2008,7 +2017,10 @@ function callFrame(input, rate) {
     if (call.state === 'listen') $('callWave').style.setProperty('--lv', Math.min(1, rms * 9).toFixed(2));
     return;
   }
-  if (call.state !== 'listen' && call.state !== 'speak') return;
+  // 她在想上一句的时候，你也可以接着说（补一句、改口、说"算了"）：照常听，说完先存着，等她那边空出来马上送过去。
+  // 正在把你刚说的话转成文字、或者正在送出去的那一小会儿不听，免得两句话搅在一起。
+  const thinkListen = call.state === 'think' && (call.speaking || (voiceBusy && !call.sending && !call.st));
+  if (call.state !== 'listen' && call.state !== 'speak' && !thinkListen) return;
   const step = rate / 16000, out = new Float32Array(Math.floor(input.length / step));
   for (let i = 0; i < out.length; i++) { const a = Math.floor(i * step), b = Math.max(a + 1, Math.floor((i + 1) * step)); let s = 0; for (let k = a; k < b; k++) s += input[k]; out[i] = s / (b - a); }
   if (call.state === 'speak') {
@@ -2017,7 +2029,7 @@ function callFrame(input, rate) {
     call.pre.push(out);
     if (call.pre.length > 18) call.pre.shift();
     if (rms > Math.max(0.038, call.noise * 6)) call.loudMs += ms; else call.loudMs = Math.max(0, call.loudMs - ms);
-    if (call.loudMs >= 360 && now - call.speakAt > 1200) callBarge(now);
+    if (call.loudMs >= 240 && now - call.speakAt > 1200) callBarge(now);   // 0.24 秒："停""好了"这样的短话也能打断她
     return;
   }
   if (now < call.muteUntil) return;
@@ -2040,7 +2052,7 @@ function callFrame(input, rate) {
   if (now - call.lastLoud > (brief ? 1100 : call.st ? (call.st.whole ? 1500 : 2400) : 1500) || now - call.startAt > 180000) {
     const frames = call.rec, spoke = call.lastLoud - call.startAt;
     call.rec = []; call.speaking = false; call.loudMs = 0;
-    if (spoke < 200) { streamDrop(); $('voiceStateText').textContent = '正在听，直接说话就行'; return callPump(); }
+    if (spoke < 60) { streamDrop(); $('voiceStateText').textContent = '正在听，直接说话就行'; return callPump(); }   // 起步已经先听了 0.11 秒，这里再要 0.06 秒：一个字的话（约 0.2~0.3 秒）不会再被丢
     if (call.st) { call.st.frames = frames; voiceState('think', '听到了，正在转成文字…'); return streamPump(true); }
     callUtterance(frames);
   }
