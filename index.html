@@ -280,6 +280,28 @@ body.term-open{padding-bottom:var(--term-h,56vh)}
 .usage .foot button:hover{border-color:var(--sub);color:var(--text)}
 .usage .foot button:disabled{opacity:.5;cursor:default}
 .usage .err{color:var(--warn)}
+/* 页面自己的对话框（代替浏览器自带的弹窗） */
+.dlg-back{z-index:90;align-items:center;padding:16px}
+.dlg{width:min(440px,100%);background:var(--card,#111827);border:1px solid var(--line);border-radius:16px;padding:22px 24px 20px;box-shadow:0 24px 70px rgba(0,0,0,.5);outline:none}
+.dlg h3{margin:0 0 14px;font-size:16px;font-weight:600;color:var(--text)}
+.dlg-ver{display:flex;align-items:center;gap:12px;font-size:22px;font-variant-numeric:tabular-nums;margin-bottom:14px}
+.dlg-ver span{color:var(--sub)}.dlg-ver i{font-style:normal;color:var(--mute);font-size:16px}.dlg-ver b{font-weight:600;color:var(--ok)}
+.dlg-notes{border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:13px;line-height:1.7;color:var(--text);overflow-wrap:anywhere}
+.dlg-notes small{display:block;color:var(--sub);font-size:12px;margin-bottom:2px}
+.dlg-note{margin:12px 0 0;font-size:12px;line-height:1.7;color:var(--sub)}
+.dlg-bad{margin:0;font-size:14px;line-height:1.7;color:var(--bad);overflow-wrap:anywhere}
+.dlg-steps{list-style:none;margin:0;padding:0;font-size:14px}
+.dlg-steps li{display:flex;align-items:center;gap:10px;padding:5px 0;color:var(--mute)}
+.dlg-steps li::before{content:"";flex:none;width:10px;height:10px;border-radius:50%;border:2px solid var(--mute);box-sizing:border-box}
+.dlg-steps li.ok{color:var(--sub)}.dlg-steps li.ok::before{border-color:var(--ok);background:var(--ok)}
+.dlg-steps li.now{color:var(--text)}.dlg-steps li.now::before{border-color:var(--warn);animation:voicePulse 1s ease-in-out infinite}
+.dlg-btns{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
+.dlg-btns[hidden]{display:none}
+.dlg-btn{background:transparent;color:var(--sub);border:1px solid var(--line);border-radius:10px;padding:7px 18px;font:inherit;font-size:13px;cursor:pointer}
+.dlg-btn:hover{color:var(--text);border-color:var(--sub)}
+.dlg-btn.primary{color:var(--ok);border-color:var(--ok)}
+.dlg-btn.primary:hover{background:color-mix(in srgb,var(--ok) 15%,transparent)}
+.dlg-btn:focus-visible{outline:2px solid var(--text);outline-offset:2px}
 /* 右上角：当前版本和在线更新 */
 .ver{display:inline-flex;align-items:center;gap:8px}
 .ver #verText{color:var(--sub);font-variant-numeric:tabular-nums;cursor:default}
@@ -515,6 +537,13 @@ body.term-open{padding-bottom:var(--term-h,56vh)}
   <div class="todo-pop" role="dialog" aria-label="等你处理的事">
     <h3><span id="todoPopTitle">等你处理的事</span><button class="btn" id="todoPopClose">关闭</button></h3>
     <div id="todoPopBody"></div>
+  </div>
+</div>
+<div class="todo-back dlg-back" id="dlgBack" hidden>
+  <div class="dlg" id="dlgBox" role="dialog" aria-modal="true" aria-labelledby="dlgTitle" tabindex="-1">
+    <h3 id="dlgTitle"></h3>
+    <div id="dlgBody"></div>
+    <div class="dlg-btns" id="dlgBtns"></div>
   </div>
 </div>
 <div class="ops-alert" id="opsAlert" hidden>
@@ -1189,7 +1218,7 @@ function callStop() {
 }
 $('voiceOpen').addEventListener('click', (e) => { e.stopPropagation(); if (call.on) callStop(); else callStart(); });
 $('voiceHist').addEventListener('click', (e) => { e.stopPropagation(); voiceShow = !voiceShow; voiceKey = ''; voicePolling(); });
-$('voiceClear').addEventListener('click', async () => { if (!confirm('清空通话记录吗？已经交出去的事不受影响。')) return; try { await voiceApi('clear', { body: '{}' }); voiceKey = ''; await voiceLoad(); } catch (e) { voiceTip(e.message, true); } });
+$('voiceClear').addEventListener('click', async () => { if (!(await dlgAsk('清空通话记录', '清空通话记录吗？已经交出去的事不受影响。', '清空'))) return; try { await voiceApi('clear', { body: '{}' }); voiceKey = ''; await voiceLoad(); } catch (e) { voiceTip(e.message, true); } });
 $('voiceText').addEventListener('keydown', async (e) => {
   if (e.key !== 'Enter' || e.isComposing) return;
   e.preventDefault();
@@ -1199,6 +1228,24 @@ $('voiceText').addEventListener('keydown', async (e) => {
   if (await voiceSend(text)) $('voiceText').value = ''; else if (call.on) callListen();
 });
 window.addEventListener('pagehide', () => { if (call.on) callStop(); });
+// ---- 页面自己的对话框（代替浏览器自带的弹窗）。dlgShow 返回一个 Promise：点了哪个按钮就得到那个按钮的 value；按 Esc 或点空白处得到 false。----
+let dlgDone = null, dlgLock = false;
+function dlgClose(value) { $('dlgBack').hidden = true; const f = dlgDone; dlgDone = null; if (f) f(value); }
+function dlgShow({ title, html, buttons, lock }) {
+  if (dlgDone) { const f = dlgDone; dlgDone = null; f(false); }
+  dlgLock = Boolean(lock);
+  $('dlgTitle').textContent = title;
+  $('dlgBody').innerHTML = html || '';
+  $('dlgBtns').innerHTML = (buttons || []).map((b, i) => `<button class="dlg-btn${b.primary ? ' primary' : ''}" data-dlg="${i}">${esc(b.label)}</button>`).join('');
+  $('dlgBtns').hidden = !(buttons && buttons.length);
+  $('dlgBack').hidden = false;
+  const first = $('dlgBtns').querySelector('.primary') || $('dlgBtns').querySelector('button');
+  if (first) first.focus(); else $('dlgBox').focus();
+  return new Promise((resolve) => { dlgDone = (v) => resolve(v === undefined ? false : v); $('dlgBtns').onclick = (e) => { const b = e.target.closest('[data-dlg]'); if (b) dlgClose(buttons[Number(b.dataset.dlg)].value); }; });
+}
+const dlgAsk = (title, text, ok) => dlgShow({ title, html: `<p class="dlg-note" style="font-size:14px;color:var(--text)">${esc(text)}</p>`, buttons: [{ label: '取消', value: false }, { label: ok || '确定', primary: true, value: true }] });
+$('dlgBack').addEventListener('click', (e) => { if (e.target === $('dlgBack') && !dlgLock) dlgClose(false); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('dlgBack').hidden && !dlgLock) dlgClose(false); });
 // ---- 右上角：当前版本和在线更新 ----
 let verData = null, verWait = 0;
 async function verApi(route, post) {
@@ -1220,30 +1267,60 @@ function paintVer(d, note) {
 }
 async function verLoad() { try { paintVer(await verApi('status')); } catch (e) { /* 下次再取 */ } }
 // 更新时调度台会重启几秒，这期间取不到状态是正常的：一直等到它说"更新完了"或者"没更新成"。
-function verWatch(prevAt) {
+const VER_STEPS = ['下载新版本', '检查文件', '替换并重启', '确认能正常打开'];
+function verProgress(step, from, to) {
+  dlgShow({
+    title: '正在更新', lock: true,
+    html: `<div class="dlg-ver"><span>v${esc(from)}</span><i>→</i><b>v${esc(to)}</b></div><ol class="dlg-steps">${VER_STEPS.map((s, i) => `<li class="${i < step ? 'ok' : i === step ? 'now' : ''}">${s}</li>`).join('')}</ol><p class="dlg-note">调度台会重启几秒，这个窗口先不要关。</p>`,
+  });
+}
+function verWatch(prevAt, from, to) {
   clearInterval(verWait);
   const started = Date.now();
+  let step = 0;
+  verProgress(step, from, to);
   verWait = setInterval(async () => {
     let d = null;
     try { d = await verApi('status'); } catch (e) { /* 正在重启 */ }
     if (d && !d.running && d.last && d.last.at !== prevAt) {
       clearInterval(verWait);
-      if (d.last.state === 'done') { alert(d.last.message + '。页面会刷新一下。'); location.reload(); }
-      else { paintVer(d); alert('没有更新成：' + d.last.message); }
-    } else if (Date.now() - started > 5 * 60000) { clearInterval(verWait); if (d) paintVer(d, '更新超时，稍后刷新页面看看'); }
-    else if (d) paintVer({ ...d, running: true });
-  }, 2500);
+      paintVer(d);
+      if (d.last.state === 'done') {
+        let left = 3;
+        const show = () => dlgShow({ title: '更新完成', lock: true, html: `<div class="dlg-ver"><b>v${esc(d.current.version)}</b></div>${d.current.notes ? `<div class="dlg-notes"><small>这一版的内容</small>${esc(d.current.notes)}</div>` : ''}<p class="dlg-note">${left} 秒后自动刷新页面。</p>`, buttons: [{ label: '现在刷新', primary: true, value: true }] }).then((v) => { if (v) location.reload(); });
+        show();
+        const t = setInterval(() => { if (--left <= 0) { clearInterval(t); location.reload(); } else show(); }, 1000);
+      } else dlgShow({ title: '没有更新成', html: `<p class="dlg-bad">${esc(d.last.message)}</p><p class="dlg-note">现在用的还是 v${esc(d.current.version)}，不影响使用。</p>`, buttons: [{ label: '知道了', primary: true, value: true }] });
+      return;
+    }
+    if (Date.now() - started > 5 * 60000) {
+      clearInterval(verWait);
+      if (d) paintVer(d);
+      return dlgShow({ title: '更新花的时间太长了', html: '<p class="dlg-note">等了 5 分钟还没有结果。稍后刷新页面，看右上角的版本号有没有变。</p>', buttons: [{ label: '知道了', primary: true, value: true }] });
+    }
+    // 状态里的话说到哪一步了；取不到状态说明调度台正在重启。
+    const m = d && d.last && d.last.at !== prevAt ? d.last.message : '';
+    step = Math.max(step, !d ? 3 : /替换|重启/.test(m) ? 2 : /检查/.test(m) ? 1 : 0);
+    verProgress(step, from, to);
+    if (d) paintVer({ ...d, running: true });
+  }, 2000);
 }
 $('verBtn').addEventListener('click', async () => {
   const b = $('verBtn');
   try {
     if (verData && verData.hasUpdate) {
-      const l = verData.latest;
-      if (!confirm('更新到 v' + l.version + ' 吗？\n\n' + (l.notes ? '这一版的内容：' + l.notes + '\n\n' : '') + '更新时调度台会重启几秒；会先备份现在的版本，新版本起不来会自动换回来。')) return;
+      const l = verData.latest, cur = verData.current.version;
+      const yes = await dlgShow({
+        title: '发现新版本',
+        html: `<div class="dlg-ver"><span>v${esc(cur)}</span><i>→</i><b>v${esc(l.version)}</b></div>${l.notes ? `<div class="dlg-notes"><small>这一版的内容${l.date ? ' · ' + esc(l.date) : ''}</small>${esc(l.notes)}</div>` : ''}<p class="dlg-note">更新时调度台会重启几秒。会先备份现在的版本，新版本起不来会自动换回来。</p>`,
+        buttons: [{ label: '以后再说', value: false }, { label: '立即更新', primary: true, value: true }],
+      });
+      if (!yes) return;
       b.disabled = true; b.textContent = '正在更新…';
       const prevAt = verData.last ? verData.last.at : 0;
-      await verApi('apply', true);
-      return verWatch(prevAt);
+      verProgress(0, cur, l.version);
+      try { await verApi('apply', true); } catch (e) { dlgShow({ title: '没有更新成', html: `<p class="dlg-bad">${esc(e.message)}</p>`, buttons: [{ label: '知道了', primary: true, value: true }] }); throw e; }
+      return verWatch(prevAt, cur, l.version);
     }
     b.disabled = true; b.textContent = '正在检查…';
     const d = await verApi('check', true);
