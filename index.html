@@ -1958,7 +1958,7 @@ async function streamPump(last) {
     // 豆包说这句话完了（或者本地等够了、让它收尾）：不再听，把这句话交出去。
     streamDrop();
     call.rec = []; call.speaking = false; call.loudMs = 0;
-    if (!r.text && st.frames) return callUtterance(st.frames);   // 流式什么都没认出来：整句再认一次
+    if (!String(r.text || '').replace(/[\s。，,.!！?？~、]/g, '')) { $('callCap').textContent = ''; return callListen(); }   // 流式什么都没认出来：是杂音，不是你在说话，接着听
     return callHeard(r.text);
   }
   if (st.wantLast) { st.wantLast = false; streamPump(true); }
