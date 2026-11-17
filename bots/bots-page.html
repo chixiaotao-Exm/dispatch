@@ -314,7 +314,7 @@ $('form').onsubmit = async (e) => {
 $('dDel').onclick = async () => { if (!confirm('删除"' + editing.name + '"？它的对话和长期记忆会一起删除。')) return; try { await call('POST', '/bot/delete', { bot: editing.id }); $('dlg').close(); cur = ''; await loadState(); } catch (err) { $('dErr').textContent = err.message; } };
 $('dMem').onclick = async () => { if (!confirm('清空"' + editing.name + '"的长期记忆？')) return; try { await call('POST', '/memory/clear', { bot: editing.id }); $('dErr').textContent = '已清空'; } catch (err) { $('dErr').textContent = err.message; } };
 
-(async () => { await loadState(); if (cur) loadChat(true); else paintMsgs(); if (store.get('desk') || new URLSearchParams(location.search).get('desk')) desk(true); setInterval(loadState, 3000); })();
+(async () => { await loadState(); if (cur) loadChat(true); else paintMsgs(); if (new URLSearchParams(location.search).get('desk')) desk(true); setInterval(loadState, 3000); })();
 </script>
 <dialog id="extDlg" class="extdlg"><div class="dl">
   <div class="row"><h3 style="margin:0">Bot 的扩展</h3><span class="sp"></span><button type="button" id="extClose">关闭</button></div>
