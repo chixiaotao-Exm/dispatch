@@ -513,7 +513,7 @@ button:hover,.btn:hover{box-shadow:0 0 12px -2px var(--accent)}
 
 /* ================= 地图模式：整页是一张导航地图（屏幕够宽时）================= */
 #mapBox{display:none}
-.mapmode #mapBox{display:block;position:relative;margin-top:14px;height:calc(100vh / var(--zoom) - 112px);min-height:900px;border:1px solid var(--line);border-radius:8px;overflow:hidden;
+.mapmode #mapBox{display:block;position:relative;margin-top:14px;height:calc(100vh / var(--zoom) - 118px);min-height:660px;border:1px solid var(--line);border-radius:8px;overflow:hidden;
   background:radial-gradient(60% 55% at 50% 54%,#0c2038 0%,#071324 60%,#050d1a 100%)}
 /* 原来上下排列的那一套在地图模式里不显示（卡片已经挪进地图了） */
 .mapmode>.center,.mapmode>.v,.mapmode>#reportTag,.mapmode>.ceo-row,.mapmode>#bar,.mapmode>.cols{display:none}
@@ -583,9 +583,9 @@ button:hover,.btn:hover{box-shadow:0 0 12px -2px var(--accent)}
 .map-scale span{position:absolute;left:0;right:0;bottom:8px;text-align:center;font:12px var(--hud);color:#4d79a6;letter-spacing:.06em}
 
 /* ---- 地图上的房子：每个 Agent 是一栋建筑（一整块街区），路线通到它门口 ---- */
-.mapmode #mapBox{container-type:inline-size}
+.mapmode #mapBox{container-type:size}
 .place{--bw:min(270px,12.4cqw)}
-.place>.card{left:calc(var(--bw) / -2);width:var(--bw);min-height:132px;padding:14px 16px 26px;border-radius:10px;animation:none;
+.place>.card{left:calc(var(--bw) / -2);width:var(--bw);min-height:min(132px,15.5cqh);padding:14px 16px 26px;border-radius:10px;animation:none;
   border:1.5px solid color-mix(in srgb,var(--glow) 60%,#0a1a2e);
   /* 屋顶：淡淡的格子像建筑的平面图，整体带一点这个 Agent 的颜色 */
   background:
@@ -600,8 +600,8 @@ button:hover,.btn:hover{box-shadow:0 0 12px -2px var(--accent)}
 .place>.card .big{font-size:30px}
 /* 门口：路线到这里为止 */
 .place::after{display:none}
-.place>.card{bottom:12px}
-.place.below>.card{bottom:auto;top:12px}
+.place>.card{bottom:30px}
+.place.below>.card{bottom:auto;top:18px}
 /* 能点开的房子，右下角有一行小字提示 */
 .place.has-detail>.card::after{content:"点开看明细 ›";position:absolute;right:12px;bottom:7px;font-size:11px;letter-spacing:.08em;color:color-mix(in srgb,var(--glow) 80%,#fff);opacity:.75}
 .place.has-detail>.card:hover::after,.place.open>.card::after{opacity:1}
@@ -629,9 +629,9 @@ button:hover,.btn:hover{box-shadow:0 0 12px -2px var(--accent)}
   <!-- 地图模式：道路和路线（svg）、左右信息面板、各个地点、点开地点后的明细面板 -->
   <div id="mapBox">
     <svg id="mapSvg" viewBox="0 0 1000 560" preserveAspectRatio="none" aria-hidden="true"></svg>
-    <span class="map-lb" style="left:12%;top:51%">调度大道</span><span class="map-lb" style="left:80%;top:51%">调度大道</span>
-    <span class="map-lb v" style="left:51.4%;top:24%">汇报大道</span><span class="map-lb v" style="left:51.4%;top:88%">汇报大道</span>
-    <span class="map-lb" style="left:27%;top:31%">线路街</span><span class="map-lb" style="left:84%;top:66.5%">任务街</span><span class="map-lb" style="left:6%;top:66.5%">任务街</span>
+    <span class="map-lb" style="left:13%;top:49.6%">调度大道</span><span class="map-lb" style="left:82%;top:49.6%">调度大道</span>
+    <span class="map-lb v" style="left:52.4%;top:30%">汇报大道</span><span class="map-lb v" style="left:52.4%;top:86%">汇报大道</span>
+    <span class="map-lb" style="left:14%;top:29.6%">线路街</span><span class="map-lb" style="left:84%;top:58.8%">任务街</span><span class="map-lb" style="left:14%;top:58.8%">任务街</span>
     <div class="map-compass" aria-hidden="true"><b>N</b></div>
     <div id="mapPlaces"></div>
     <div class="place puck" style="left:50%;top:53.5714%" aria-hidden="true"><div class="pk"></div><div class="lb">CEO Agent</div></div>
@@ -853,16 +853,16 @@ const MAP = {
   on: false, W: 1000, H: 560, C: [500, 300], moved: [], routes: {}, open: '',
   // 地点的坐标（地图是 1000 × 560 的格子），以及从 CEO Agent 出发、沿道路走到它要经过的拐点。
   places: {
-    boss:  { card: 'bossCard', at: [500, 78], via: [], color: '--c-boss', cls: 'boss' },
+    boss:  { card: 'bossCard', at: [500, 104], via: [], color: '--c-boss', cls: 'boss' },
     lineL: { card: 'lineLeftCard', at: [338, 188], via: [[500, 188]], color: '--c-pojia', cls: 'line', side: 'lineLeft' },
     lineR: { card: 'lineRightCard', at: [662, 188], via: [[500, 188]], color: '--c-qiye', cls: 'line', side: 'lineRight' },
-    site:  { card: 'siteCard', at: [92, 440], via: [[92, 300]], color: '--c-site', detail: true },
-    music: { card: 'musicCard', at: [236, 392], via: [[236, 300]], color: '--c-music', detail: true },
-    auto:  { card: 'autoCard', at: [368, 468], via: [[500, 385], [368, 385]], color: '--c-auto', detail: true },
-    bot:   { card: 'botCard', at: [500, 446], via: [], color: '--c-bot', detail: true },
-    store: { card: 'storeCard', at: [632, 468], via: [[500, 385], [632, 385]], color: '--c-store', detail: true },
-    relay: { card: 'relayCard', at: [764, 392], via: [[764, 300]], color: '--c-relay', detail: true },
-    srv:   { card: 'srvCard', at: [908, 440], via: [[908, 300]], color: '--c-srv', detail: true },
+    site:  { card: 'siteCard', at: [92, 408], via: [[92, 300]], color: '--c-site', detail: true },
+    music: { card: 'musicCard', at: [236, 366], via: [[236, 300]], color: '--c-music', detail: true },
+    auto:  { card: 'autoCard', at: [368, 424], via: [[500, 352], [368, 352]], color: '--c-auto', detail: true },
+    bot:   { card: 'botCard', at: [500, 402], via: [], color: '--c-bot', detail: true },
+    store: { card: 'storeCard', at: [632, 424], via: [[500, 352], [632, 352]], color: '--c-store', detail: true },
+    relay: { card: 'relayCard', at: [764, 366], via: [[764, 300]], color: '--c-relay', detail: true },
+    srv:   { card: 'srvCard', at: [908, 408], via: [[908, 300]], color: '--c-srv', detail: true },
   },
   keyOf(card) { return Object.keys(this.places).find((k) => this.places[k].card === (card && card.id)); },
   // 把一串拐点连成一条路，拐弯处走圆角。
@@ -879,17 +879,14 @@ const MAP = {
   },
   build() {
     const P = this.places, C = this.C, road = (pts, cls) => `<path class="rd ${cls || ''}" d="${this.d(pts)}"/>`;
-    let svg = '<path class="river" d="M-20 150 C140 120 210 250 330 240 S470 120 600 110 S860 190 1020 60"/>'
-      + '<g class="park"><rect x="560" y="210" width="150" height="70" rx="10"/><rect x="120" y="470" width="90" height="70" rx="10"/><rect x="830" y="320" width="60" height="50" rx="10"/></g>'
-      + '<g class="blk">' + [[130, 30, 150, 70], [300, 30, 160, 60], [540, 20, 120, 60], [720, 30, 160, 110], [30, 210, 180, 70], [260, 205, 200, 75], [760, 210, 200, 70], [120, 320, 90, 50], [262, 320, 80, 50], [530, 320, 200, 50], [395, 400, 80, 50], [525, 400, 80, 50], [690, 420, 50, 70], [260, 420, 80, 80], [790, 470, 90, 60], [20, 470, 50, 60]]
-        .map((b) => `<rect x="${b[0]}" y="${b[1]}" width="${b[2]}" height="${b[3]}" rx="4"/>`).join('') + '</g>';
+    let svg = '<path class="river" d="M-20 150 C140 120 210 250 330 240 S470 120 600 110 S860 190 1020 60"/>';
     // 没有路线经过的普通道路：让它看起来是一座城市，而不只是几条线。
     svg += road([[0, 300], [1000, 300]]) + road([[500, 0], [500, 560]])
-      + road([[0, 188], [1000, 188]], 's') + road([[0, 385], [1000, 385]], 's')
+      + road([[0, 188], [1000, 188]], 's') + road([[0, 352], [1000, 352]], 's')
       + road([[236, 0], [236, 300]], 's') + road([[764, 0], [764, 300]], 's')
       + '<path class="rd s" d="M0 95 C180 80 300 60 400 0"/><path class="rd s" d="M1000 150 C860 140 760 60 700 0"/>'
       + '<path class="rd s" d="M92 300 C92 215 150 188 236 188"/><path class="rd s" d="M908 300 C908 215 850 188 764 188"/>'
-      + '<path class="rd s" d="M236 392 C236 480 300 530 368 560"/><path class="rd s" d="M764 392 C764 480 700 530 632 560"/>'
+      + '<path class="rd s" d="M236 366 C236 460 300 520 368 560"/><path class="rd s" d="M764 366 C764 460 700 520 632 560"/>'
       + '<path class="rd" d="M0 540 C250 500 420 546 500 528 S780 500 1000 540"/>'
       + '<path class="rd s" d="M150 300 C150 110 850 110 850 300" style="opacity:.6"/>';
     let base = '', lit = '', flow = '';
