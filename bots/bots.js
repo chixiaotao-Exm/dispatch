@@ -107,9 +107,10 @@ async function listModels() {
   modelCache = { at: Date.now(), list: [
     ...relay.filter((id) => probes[id] !== 'no').map((id) => {
       const tested = probes[id] !== undefined, vision = tested ? probes[id] === true : /^(gpt-|kimi|claude|deepseek)/.test(id);   // 这里的 id 是中转站上的真名，不能用 visionOf（它会把同名的当成 Claude 订阅）
-      return { id: CLAUDE_MODELS.includes(id) ? 'relay:' + id : id, via: 'relay', vision, note: '中转站 · ' + (vision ? '能看截图' : '只看文字') + (tested ? '' : '（还没实测）') };
-    }),
-    ...CLAUDE_MODELS.map((id) => ({ id, via: 'claude', vision: false, note: 'Claude 订阅 · 只看文字 · 消耗订阅额度' })),
+      const twin = CLAUDE_MODELS.includes(id);   // 和 Claude 订阅同名的：标成“中转站版”，并排到列表后面，和订阅版挨着
+      return { id: twin ? 'relay:' + id : id, via: 'relay', vision, twin, note: (twin ? '中转站版 · 按量计费 · ' : '中转站 · ') + (vision ? '能看截图' : '只看文字') + (tested ? '' : '（还没实测）') };
+    }).sort((a, b) => Number(a.twin) - Number(b.twin)).map(({ twin, ...m }) => m),
+    ...CLAUDE_MODELS.map((id) => ({ id, via: 'claude', vision: false, note: '订阅版 · 消耗订阅额度 · 只看文字' })),
   ] };
   return modelCache.list;
 }
