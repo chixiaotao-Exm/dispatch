@@ -1008,7 +1008,14 @@ function soundSpy(w, name) {
   } catch (e) { /* 这个面板不让看：跳过 */ }
 }
 soundSpy(window, '首页');
-setInterval(() => soundSpy(window, '首页'), 1500);   // 后来才打开的面板也要装上
+{
+  const fast = setInterval(() => soundSpy(window, '首页'), 100);   // 头 20 秒查得很勤：面板刚加载出来就装上，不漏掉一连上就响的那一下
+  setTimeout(() => { clearInterval(fast); setInterval(() => soundSpy(window, '首页'), 1500); }, 20000);
+  const frames = (w, name) => { const out = []; try { for (const f of w.document.querySelectorAll('iframe')) { let p = '(没加载)', ok = false; try { p = f.contentWindow.location.pathname; ok = Boolean(f.contentWindow.HTMLMediaElement.prototype.__spy); } catch (e) { p = '(看不到)'; } if (p !== 'blank' && p !== '(没加载)') { out.push(name + '>' + (f.id || 'iframe') + ' ' + p + (ok ? ' 已装' : ' 未装')); out.push(...frames(f.contentWindow, name + '>' + (f.id || 'iframe'))); } } } catch (e) { /* 看不到 */ } return out; };
+  const hello = (kind) => { try { navigator.sendBeacon('/api/diag/sound', JSON.stringify({ at: new Date().toISOString().slice(11, 23), kind, frames: frames(window, '首页').join(' | ').slice(0, 380) })); } catch (e) { /* 报不了就算了 */ } };
+  hello('页面打开，记录器开始工作');
+  setTimeout(() => hello('打开 8 秒后'), 8000);
+}
 const wrap = $('wrap');
 // ---- 地图模式：整页是一张导航地图 ----
 // 每个 Agent 是地图上的一个园区：园区里有一栋主楼（就是它原来的卡片），它的每一条明细（每个网站、每台服务器、每个库……）
