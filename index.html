@@ -980,6 +980,35 @@ const hhmm = (t) => t ? new Date(t).toLocaleTimeString('zh-CN', { hour: '2-digit
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 // 通信动画：每轮巡视时按"派发 → 汇报 → 上报"的顺序点亮对应的连接线。
+// ---- 临时的声音诊断 ----
+// 在这个页面和它里面嵌着的每个面板（任务、终端、Bot 桌面……）上都装一个记录器：谁一播放声音，就把是哪个面板、播的是什么文件报给服务器。
+// 只记录，不改变任何声音。找到那个"叮"的来源之后会去掉。
+function soundSpy(w, name) {
+  try {
+    const tell = (kind, what) => { try { navigator.sendBeacon('/api/diag/sound', JSON.stringify({ at: new Date().toISOString().slice(11, 23), frame: name, kind, what: String(what || '').slice(0, 200), sinceLoad: Math.round(performance.now()) })); } catch (e) { /* 报不了就算了 */ } };
+    const P = w.HTMLMediaElement && w.HTMLMediaElement.prototype;
+    if (P && !P.__spy) {
+      P.__spy = true;
+      const play = P.play;
+      P.play = function () { const src = this.currentSrc || this.src || (this.querySelector && this.querySelector('source') || {}).src || ''; tell('播放 <' + this.tagName.toLowerCase() + (this.id ? ' id=' + this.id : '') + '>', src.startsWith('blob:') ? '（合成的语音）' : src); return play.apply(this, arguments); };
+    }
+    const AC = w.AudioContext || w.webkitAudioContext;
+    if (AC && !AC.prototype.__spy) {
+      AC.prototype.__spy = true;
+      for (const fn of ['createOscillator', 'createBufferSource']) { const orig = AC.prototype[fn]; AC.prototype[fn] = function () { tell('程序生成的声音', fn); return orig.apply(this, arguments); }; }
+    }
+    if (w.speechSynthesis && !w.speechSynthesis.__spy) { w.speechSynthesis.__spy = true; const sp = w.speechSynthesis.speak.bind(w.speechSynthesis); w.speechSynthesis.speak = (u) => { tell('浏览器朗读', u && u.text); return sp(u); }; }
+    if (w.Notification && !w.__spyN) { w.__spyN = true; const N = w.Notification; w.Notification = function (t, o) { tell('系统通知', t); return new N(t, o); }; w.Notification.permission = N.permission; w.Notification.requestPermission = N.requestPermission.bind(N); }
+    // 这个面板里再嵌着的面板也装上
+    for (const f of w.document.querySelectorAll('iframe')) {
+      const sub = name + ' > ' + (f.id || f.title || 'iframe');
+      if (!f.__spy) { f.__spy = true; f.addEventListener('load', () => soundSpy(f.contentWindow, sub)); }
+      try { if (f.contentWindow && f.contentDocument && f.contentDocument.readyState !== 'loading') soundSpy(f.contentWindow, sub); } catch (e) { /* 还没加载好 */ }
+    }
+  } catch (e) { /* 这个面板不让看：跳过 */ }
+}
+soundSpy(window, '首页');
+setInterval(() => soundSpy(window, '首页'), 1500);   // 后来才打开的面板也要装上
 const wrap = $('wrap');
 // ---- 地图模式：整页是一张导航地图 ----
 // 每个 Agent 是地图上的一个园区：园区里有一栋主楼（就是它原来的卡片），它的每一条明细（每个网站、每台服务器、每个库……）
