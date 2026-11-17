@@ -124,7 +124,7 @@ button,input,textarea,select{border-radius:4px}
     <div class="box"><div class="in"><textarea id="text" rows="1" placeholder="给它一个任务，回车发送，Shift+回车换行"></textarea><button id="stop" class="danger" hidden>停止</button><button id="send" class="pri">发送</button></div></div>
   </main>
   <section class="deskp" id="deskp" hidden>
-    <div class="head"><span>Bot 的电脑 · 实时画面（可以直接用鼠标键盘操作）</span><span class="sp"></span><a href="/desk/vnc.html?autoconnect=1&resize=scale&reconnect=1&path=desk/websockify" target="_blank" rel="noopener" style="color:var(--run);font-size:12px">新窗口打开</a><button id="deskClose">收起</button></div>
+    <div class="head"><span>Bot 的电脑 · 实时画面（可以直接用鼠标键盘操作）</span><span class="sp"></span><a href="/desk/vnc.html?autoconnect=1&resize=scale&reconnect=1&bell=off&path=desk/websockify" target="_blank" rel="noopener" style="color:var(--run);font-size:12px">新窗口打开</a><button id="deskClose">收起</button></div>
     <iframe id="desk" title="Bot 的桌面" allow="clipboard-read; clipboard-write"></iframe>
   </section>
 </div>
@@ -139,7 +139,7 @@ button,input,textarea,select{border-radius:4px}
 <!--EXT-UI-->
 <script>
 const API = '/bots/api';
-const DESK_URL = '/desk/vnc.html?autoconnect=1&resize=scale&reconnect=1&path=desk/websockify';
+const DESK_URL = '/desk/vnc.html?autoconnect=1&resize=scale&reconnect=1&bell=off&path=desk/websockify';
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const store = { get: (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* 存不了就算了 */ } } };
