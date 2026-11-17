@@ -1488,6 +1488,11 @@ function closeTerm() {
 $('termClose').addEventListener('click', closeTerm);
 $('termMax').addEventListener('click', () => setTermMax(!term.classList.contains('max')));
 $('termReload').addEventListener('click', () => { PANES[pane].frame.src = PANES[pane].url; });
+// 网页终端自带"重新加载此网站？"的离开提醒。终端的会话保存在服务器上，刷新或关掉页面都不会丢，
+// 所以每次终端加载好之后，抢在它前面把这个提醒拦掉。（文件和规则页面里"有没保存的修改"的提醒不受影响。）
+$('termFrame').addEventListener('load', () => {
+  try { $('termFrame').contentWindow.addEventListener('beforeunload', (e) => e.stopImmediatePropagation(), true); } catch (e) { /* 终端没加载出来 */ }
+});
 document.addEventListener('click', (e) => {
   const tab = e.target.closest && e.target.closest('.tab[data-pane]');
   if (tab) return showPane(tab.dataset.pane);
