@@ -656,8 +656,16 @@ function readBody(req) {
 }
 
 // ---- 和 CEO Agent 说话（首页的"点击说话"）：语音转成文字后由 CEO Agent 决定交给谁。实现在 voice.js。----
+// 主人的称呼写在 config.json 的 owner 里（代码里不写任何人的名字）。
+const OWNER = cfg.owner || {};
+state.owner = { name: OWNER.name || '主人', avatar: OWNER.avatar || String(OWNER.name || '主').slice(0, 1), title: OWNER.title || '创始人 · 拍板定方向' };
+// ---- 版本和在线更新（首页右上角）。实现在 update.js；真正替换文件的是 update/update.py。----
+const updater = require('./update.js')({
+  dir: __dirname, stateDir: path.dirname(STATE_FILE),
+  repo: (cfg.update && cfg.update.repo) || '', branch: (cfg.update && cfg.update.branch) || 'main',
+});
 const voice = LLM_ON ? require('./voice.js')({
-  ceoCall, state, briefInput, note: ceoNote,
+  ceoCall, state, briefInput, note: ceoNote, ownerName: OWNER.name || '',
   botsUrl: (cfg.bots && cfg.bots.url) || 'http://127.0.0.1:4790/bots',
   tasksUrl: AGENT_LLM_URL ? AGENT_LLM_URL.replace('/api/llm', '') : '',
   sttUrl: (cfg.voice && cfg.voice.sttUrl) || 'http://127.0.0.1:4795/',
@@ -717,6 +725,7 @@ const server = http.createServer(async (req, res) => {
     return res.end();
   }
   if (voice && pathname.startsWith('/api/voice/')) return voice.handle(req, res, pathname);
+  if (pathname.startsWith('/api/update/')) return updater.handle(req, res, pathname);
   if (req.url === '/api/status') {
     rollDay();
     state.relay = readRelay();

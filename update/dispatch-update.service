@@ -1,0 +1,7 @@
+[Unit]
+Description=调度台在线更新（下载新版本、备份、替换、重启，失败自动退回）
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/dispatch-update/update.py
+TimeoutStartSec=600

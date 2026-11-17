@@ -279,6 +279,13 @@ body.term-open{padding-bottom:var(--term-h,56vh)}
 .usage .foot button:hover{border-color:var(--sub);color:var(--text)}
 .usage .foot button:disabled{opacity:.5;cursor:default}
 .usage .err{color:var(--warn)}
+/* 右上角：当前版本和在线更新 */
+.ver{display:inline-flex;align-items:center;gap:8px}
+.ver #verText{color:var(--sub);font-variant-numeric:tabular-nums;cursor:default}
+.ver button{background:transparent;color:var(--sub);border:1px solid var(--line);border-radius:8px;padding:3px 10px;font:inherit;font-size:12px;cursor:pointer}
+.ver button:hover{color:var(--text);border-color:var(--sub)}
+.ver button.new{color:var(--ok);border-color:var(--ok)}
+.ver button:disabled{opacity:.6;cursor:default}
 /* 和 CEO Agent 通话：直接在 CEO Agent 卡片里，不弹窗口 */
 .voice-row{display:flex;justify-content:center;align-items:center;gap:10px;margin-top:10px}
 .voice-open{background:transparent;color:var(--text);border:1px solid var(--sub);border-radius:999px;padding:6px 18px;font:inherit;font-size:13px;cursor:pointer}
@@ -354,6 +361,7 @@ body.term-open{padding-bottom:var(--term-h,56vh)}
     <div class="right">
       <span id="onduty"></span>
       <span id="clock"></span>
+      <span class="ver" id="verBox" hidden><span id="verText" title=""></span><button id="verBtn">检查更新</button></span>
       <button id="refresh">立即巡视</button>
       <a href="/logout" style="color:var(--mute);text-decoration:none">退出</a>
     </div>
@@ -371,8 +379,8 @@ body.term-open{padding-bottom:var(--term-h,56vh)}
   </div>
   <div class="center" style="padding-top:18px">
     <div class="card boss" id="bossCard" role="button" tabindex="0" title="点开看看是哪些事在等你">
-      <div class="avatar">站</div>
-      <div><div style="font-weight:600">站长</div><div class="sub">创始人 · 拍板定方向</div></div>
+      <div class="avatar" id="bossAvatar">主</div>
+      <div><div style="font-weight:600" id="bossName">主人</div><div class="sub" id="bossTitle">创始人 · 拍板定方向</div></div>
       <span class="pill" id="todoPill">加载中</span>
     </div>
   </div>
@@ -829,6 +837,7 @@ function renderInner(d) {
   renderLines(d.lines);
   $('onduty').textContent = `${8 + (d.lines || []).length}/${8 + (d.lines || []).length} Agent 在岗`;
 
+  if (d.owner) { $('bossAvatar').textContent = d.owner.avatar; $('bossName').textContent = d.owner.name; $('bossTitle').textContent = d.owner.title; }
   paintCeoLog(d.ceoLog);
   const b = d.brief || {};
   // CEO Agent 写出了新简报 → 往上报给你；线路做了一次自检 → 和 CEO Agent 之间一问一答。刚打开页面时只记下，不画。
@@ -1188,6 +1197,59 @@ $('voiceText').addEventListener('keydown', async (e) => {
   if (await voiceSend(text)) $('voiceText').value = ''; else if (call.on) callListen();
 });
 window.addEventListener('pagehide', () => { if (call.on) callStop(); });
+// ---- 右上角：当前版本和在线更新 ----
+let verData = null, verWait = 0;
+async function verApi(route, post) {
+  const res = await fetch('/api/update/' + route, post ? { method: 'POST', headers: { 'X-Update-Action': '1' } } : { cache: 'no-store' });
+  if (res.status === 401) { location.href = '/login'; throw new Error('登录过期了'); }
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(j.error || '操作失败（' + res.status + '）');
+  return j;
+}
+function paintVer(d, note) {
+  verData = d;
+  $('verBox').hidden = false;
+  $('verText').textContent = 'v' + d.current.version + (note ? ' · ' + note : '');
+  $('verText').title = [d.current.date && '这一版的日期：' + d.current.date, d.current.notes && '这一版的内容：' + d.current.notes, d.last && d.last.message && '上次更新：' + d.last.message].filter(Boolean).join('\n');
+  const b = $('verBtn');
+  b.disabled = Boolean(d.running);
+  b.classList.toggle('new', Boolean(d.hasUpdate) && !d.running);
+  b.textContent = d.running ? '正在更新…' : d.hasUpdate ? '更新到 v' + d.latest.version : '检查更新';
+}
+async function verLoad() { try { paintVer(await verApi('status')); } catch (e) { /* 下次再取 */ } }
+// 更新时调度台会重启几秒，这期间取不到状态是正常的：一直等到它说"更新完了"或者"没更新成"。
+function verWatch(prevAt) {
+  clearInterval(verWait);
+  const started = Date.now();
+  verWait = setInterval(async () => {
+    let d = null;
+    try { d = await verApi('status'); } catch (e) { /* 正在重启 */ }
+    if (d && !d.running && d.last && d.last.at !== prevAt) {
+      clearInterval(verWait);
+      if (d.last.state === 'done') { alert(d.last.message + '。页面会刷新一下。'); location.reload(); }
+      else { paintVer(d); alert('没有更新成：' + d.last.message); }
+    } else if (Date.now() - started > 5 * 60000) { clearInterval(verWait); if (d) paintVer(d, '更新超时，稍后刷新页面看看'); }
+    else if (d) paintVer({ ...d, running: true });
+  }, 2500);
+}
+$('verBtn').addEventListener('click', async () => {
+  const b = $('verBtn');
+  try {
+    if (verData && verData.hasUpdate) {
+      const l = verData.latest;
+      if (!confirm('更新到 v' + l.version + ' 吗？\n\n' + (l.notes ? '这一版的内容：' + l.notes + '\n\n' : '') + '更新时调度台会重启几秒；会先备份现在的版本，新版本起不来会自动换回来。')) return;
+      b.disabled = true; b.textContent = '正在更新…';
+      const prevAt = verData.last ? verData.last.at : 0;
+      await verApi('apply', true);
+      return verWatch(prevAt);
+    }
+    b.disabled = true; b.textContent = '正在检查…';
+    const d = await verApi('check', true);
+    paintVer(d, d.checkError ? d.checkError : d.hasUpdate ? '有新版本' : '已是最新');
+    if (!d.hasUpdate) setTimeout(() => { if (verData === d) paintVer(d); }, 5000);
+  } catch (e) { if (verData) paintVer(verData, e.message); else { b.disabled = false; b.textContent = '检查更新'; } }
+});
+verLoad(); setInterval(verLoad, 10 * 60000);
 // ---- 右上角：CEO Agent 做过的事 ----
 let ceoLogKey = '', ceoLogData = [], ceoLogFilter = 'act';
 const CEO_VERB = { allow: '批准了', deny: '拒绝了', ask: '转给你决定：', brief: '', fallback: '' };

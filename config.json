@@ -5,6 +5,14 @@
   "certWarnDays": 14,
   "timezone": "America/New_York",
   "briefMinutes": 30,
+  "owner": {
+    "name": "站长",
+    "avatar": "站"
+  },
+  "update": {
+    "repo": "example-Exm/dispatch",
+    "branch": "main"
+  },
   "llm": {
     "ceoModel": "claude-opus-5-5",
     "ceoBackup": "gpt-6.1-sol",

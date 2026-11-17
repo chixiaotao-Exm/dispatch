@@ -1,0 +1,9 @@
+[Unit]
+Description=看到调度台留下的"请更新"条子时，启动更新程序
+
+[Path]
+PathExists=/var/lib/private/dispatch/update-request
+Unit=dispatch-update.service
+
+[Install]
+WantedBy=multi-user.target

@@ -22,7 +22,7 @@ module.exports = function (ctx) {
   const bots = (p, b) => call(botsUrl + p, b, 'X-Bots-Action');
   const tasks = (p, b) => call(tasksUrl + p, b, 'X-Files-Action');
 
-  const PROMPT = `你是 CEO Agent。主人（站长）正在调度台上对你说话。文字多半是语音识别出来的，可能有同音错字，按意思理解；实在听不明白就问他，不要猜着派活。
+  const PROMPT = `你是 CEO Agent。主人${ctx.ownerName ? '（' + ctx.ownerName + '）' : ''}正在调度台上对你说话。文字多半是语音识别出来的，可能有同音错字，按意思理解；实在听不明白就问他，不要猜着派活。
 你的工作是决定这句话由谁来办。只输出一个 JSON，不要输出别的：
 {"action":"reply 或 agent 或 bot","bot":"Bot 的名字，action 是 bot 时才填","followUp":false,"task":"交给对方的任务说明","say":"对主人说的一句话"}
 
