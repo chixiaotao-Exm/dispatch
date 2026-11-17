@@ -1952,7 +1952,9 @@ async function streamPump(last) {
     return;
   }
   if (r.text) { $('callCap').textContent = '你：' + r.text; $('callCap').className = 'call-cap me'; st.whole = /[。？！?!]$/.test(r.text); }
-  if (r.definite || r.final || last) {
+  // 豆包又认出了新的字：说明你还在说（哪怕声音小到本地没算作"有声音"），重新开始计停顿。
+  if (r.text && r.text.replace(/[。？！?!，,、\s]/g, '') !== st.heard) { st.heard = r.text.replace(/[。？！?!，,、\s]/g, ''); if (!last && call.speaking) call.lastLoud = Date.now(); }
+  if (r.final || last) {
     // 豆包说这句话完了（或者本地等够了、让它收尾）：不再听，把这句话交出去。
     streamDrop();
     call.rec = []; call.speaking = false; call.loudMs = 0;
@@ -2024,8 +2026,9 @@ function callFrame(input, rate) {
   }
   call.rec.push(out);
   if (rms > thr) call.lastLoud = now;
-  // 用流式识别时，一句话说完没有主要由豆包判断；这里的停顿时间放长一些，只当作兜底。
-  if (now - call.lastLoud > (call.st ? (call.st.whole ? 850 : 1300) : 1000) || now - call.startAt > 60000) {
+  // 停多久算说完：认出来的话已经是完整的一句（末尾是句号、问号）时停 1.5 秒；话还悬在半截时停 2.4 秒，给你留出想一想的时间。
+  // 一段话最长 3 分钟。（以前是 0.85 / 1.3 秒，长话说到一半稍一停顿就被当成说完了。）
+  if (now - call.lastLoud > (call.st ? (call.st.whole ? 1500 : 2400) : 1500) || now - call.startAt > 180000) {
     const frames = call.rec, spoke = call.lastLoud - call.startAt;
     call.rec = []; call.speaking = false; call.loudMs = 0;
     if (spoke < 200) { streamDrop(); $('voiceStateText').textContent = '正在听，直接说话就行'; return callPump(); }

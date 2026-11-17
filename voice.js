@@ -181,7 +181,8 @@ module.exports = function (ctx) {
     }
     if (last && !s.error && !s.final) await new Promise((r) => { s.waiters.push(r); setTimeout(r, 5000); });
     const out = { text: s.text, definite: s.definite, final: s.final, error: s.error };
-    if (last || s.error || s.definite || s.final) {
+    // 豆包认为"一个句子完了"（definite）不等于主人把话说完了：长话里句子之间本来就有停顿。所以这里不结束，交给页面按停顿时间决定。
+    if (last || s.error || s.final) {
       if (!s.error) { asrState.lastOk = Date.now(); asrState.lastError = ''; }
       if (!String(sid).startsWith('test-')) console.log(`[语音识别] 流式一句：${s.res === 'volc.seedasr.sauc.duration' ? '豆包流式识别 2.0' : s.res === 'volc.bigasr.sauc.duration' ? '豆包流式识别 1.0' : '没连上'}，${s.error ? '出错' : s.definite && !last ? '豆包判断说完' : '本地等够后收尾'}，认出 ${s.text.length} 个字，用时 ${((Date.now() - s.born) / 1000).toFixed(1)} 秒`);
       endStream(sid);
@@ -215,7 +216,8 @@ module.exports = function (ctx) {
 - stop：主人要叫停、暂停、取消一件正在办的事（看下面给你的"正在办的事"）。这时不派新活，只让对方停下来；say 用一句话告诉主人已经叫停了谁。主人说的"暂停"也按叫停处理（停下来之后不能从中间接着做，要重新交代）。"正在办的事"是空的就用 reply 告诉他现在没有在办的事。
 revise：只在 action 是 bot 时有用。那个 Bot 正在忙，而且忙的正是主人刚才交给它的那件事，主人现在是在修改或补充这件事的要求（比如"找一个二十岁左右的""换成另一个网站"），就填 true：会让它先停下手上的，再按新的要求重新做。这时 task 必须写成修改之后的完整任务（原来的要求加上这次的修改），不能只写修改的那一句。主人交代的是另一件不相干的事，填 false。
 
-task 怎么写：把主人的要求完整、清楚地转述成一段任务说明，纠正明显的识别错字，补上从上文对话里能确定的指代（"刚才那个""它"）。不要添加主人没有提的要求，不要替他做他没做的决定。
+task 怎么写：只转述，不加料。把主人说的要求原样、完整地写成一段任务说明，尽量用他自己的话；只做三件事：纠正明显的识别错字，补上从上文对话里能确定的指代（"刚才那个""它"），修改要求时把原来的要求和这次的修改合成一段。
+task 里严禁出现主人没有说过的东西，包括但不限于：他没要求的步骤和做法、他没要求的交付物（比如"交回链接""截一张图""写一份介绍""发布成网页""列出清单"）、他没提的条件和限制、你觉得"顺便做了更好"的事、遇到某种情况该怎么办的预案。主人说"找一个跳舞的女主播"，task 就只是"找一个跳舞的女主播"加上必要的上下文，不要替他规定要交回什么。对方怎么做、交回什么由对方自己判断。主人的要求太含糊、不补充就没法做时，用 reply 问他，不要自己替他补全。写完 task 自查一遍：每一句要求都能在主人说过的话里找到出处，找不到的删掉。
 followUp：主人这句话是在接着上一件已经交给专用 Agent 的事往下说（修改、补充、追问）时填 true，这样会在原来那个任务的基础上继续；否则填 false。
 action 是 agent 或 bot 时，say 用一句话告诉主人交给了谁、去做什么，不超过 60 字。
 主人要求的事明显会造成破坏（删数据、关停线上业务之类）时先不要派出去，用 reply 向他确认一遍。
