@@ -16,7 +16,7 @@ MAX_SECONDS = 90
 recognizer = sherpa_onnx.OfflineRecognizer.from_sense_voice(
     model=os.path.join(MODEL_DIR, 'model.int8.onnx'),
     tokens=os.path.join(MODEL_DIR, 'tokens.txt'),
-    num_threads=4, use_itn=True, language='auto',
+    num_threads=4, use_itn=True, language='zh',   # 固定认中文：让它自己猜语言的话，一个字的中文会被猜成英文、日文、韩文
 )
 lock = threading.Lock()   # 一次只认一段，免得把 CPU 占满
 

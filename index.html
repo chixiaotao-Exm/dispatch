@@ -1967,7 +1967,15 @@ async function streamPump(last) {
     // 豆包说这句话完了（或者本地等够了、让它收尾）：不再听，把这句话交出去。
     streamDrop();
     call.rec = []; call.speaking = false; call.loudMs = 0;
-    if (!String(r.text || '').replace(/[\s。，,.!！?？~、]/g, '')) { $('callCap').textContent = ''; return callListen(); }   // 流式什么都没认出来：是杂音，不是你在说话，接着听
+    if (!String(r.text || '').replace(/[\s。，,.!！?？~、]/g, '')) {
+      // 听到了声音，但一个字都没认出来。可能是杂音，也可能是你说得太短。不交给 CEO（免得对着杂音瞎答），但要让你知道没听清，
+      // 并把这一句录音留在服务器上，方便以后查原因。
+      if (st.frames && st.frames.length) voiceApi('miss', { body: wavBlob(st.frames), type: 'application/octet-stream' }).catch(() => {});
+      callListen();
+      $('callCap').textContent = '刚才那句没听清，再说一遍。很短的话可以多说一两个字，比如“好的”“确认”“送吧”。'; $('callCap').className = 'call-cap';
+      $('callStatus').textContent = '没听清，再说一遍';
+      return;
+    }
     return callHeard(r.text);
   }
   if (st.wantLast) { st.wantLast = false; streamPump(true); }

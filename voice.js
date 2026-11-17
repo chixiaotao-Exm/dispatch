@@ -3,6 +3,7 @@
 // 这里只负责"派活"：专用 Agent 要动服务器时照旧走审批，这里不替任何人批准任何事。
 const fs = require('fs');
 const crypto = require('crypto');
+const path = require('path');
 const zlib = require('zlib');
 
 module.exports = function (ctx) {
@@ -121,6 +122,9 @@ module.exports = function (ctx) {
     if (i >= 0) { const last = asr.hotwords.reduce((m, w) => Math.max(m, t.lastIndexOf(w) + w.length), i); t = t.slice(last).replace(/^[。.、，,\s]+/, ''); }
     const words = asr.hotwords.filter(Boolean);
     if (words.length >= 4) { let j = 0, n = 0; for (const w of words) { const k = t.indexOf(w, j); if (k < 0 || k - j > 3) break; j = k + w.length; n++; } if (n >= 4 && n >= words.length - 1) t = t.slice(j).replace(/^[。.、，,\s]+/, ''); }   // 开头连着就是那一串词
+    // 对着杂音，它有时会把参考词整串念出来（实际出现过）：把参考词都去掉之后几乎不剩什么，就当没听到。
+    const hit = words.filter((w) => t.includes(w));
+    if (hit.length >= 4) { let rest = t; for (const w of hit) rest = rest.split(w).join(''); if (rest.replace(/[\s。，,.!！?？~、…]/g, '').length < 2) return ''; }
     return t.trim();
   };
   const qwFail = (msg) => { asrState.qwError = String(msg).slice(0, 200); asrState.qwDownUntil = Date.now() + 3 * 60000; console.log('[语音识别] Qwen3-ASR 没成：' + asrState.qwError + '；这几分钟先用' + (asrReady() ? '豆包' : '本机模型')); };
@@ -285,13 +289,19 @@ module.exports = function (ctx) {
         // 不能一有动静就当成结果——那样短话（比如只说一个词）只会拿到开头的一个字。
         const until = Date.now() + 4000;
         while (!s.error && !s.final && Date.now() < until) await new Promise((r) => { s.waiters.push(r); setTimeout(r, 250); });
-      } else await new Promise((r) => { s.waiters.push(r); setTimeout(r, 5000); });
+      } else {
+        // 豆包也一样：收尾之后它会先送来几次还没定稿的结果，最后一包才是定稿。短话（一两个字）在收尾那一刻往往还一个字都没出来，
+        // 所以要等到最后一包为止（最多 4 秒），不能一有回应就取——那样短话拿到的是空的，会被当成杂音。
+        const until = Date.now() + 4000;
+        while (!s.error && !s.final && Date.now() < until) await new Promise((r) => { s.waiters.push(r); setTimeout(r, 250); });
+        s.waitedFinal = s.final;
+      }
     }
     const out = { text: s.text, definite: s.definite, final: s.final, error: s.error };
     // 豆包认为"一个句子完了"（definite）不等于主人把话说完了：长话里句子之间本来就有停顿。所以这里不结束，交给页面按停顿时间决定。
     if (last || s.error || s.final) {
       if (!s.error) { asrState.lastOk = Date.now(); asrState.lastError = ''; if (s.qw) asrState.qwError = ''; }
-      if (!String(sid).startsWith('test-')) console.log(`[语音识别] 流式一句：${s.name ? s.name : s.res === 'volc.seedasr.sauc.duration' ? '豆包流式识别 2.0' : s.res === 'volc.bigasr.sauc.duration' ? '豆包流式识别 1.0' : '没连上'}，${s.error ? '出错' : s.definite && !last ? '豆包判断说完' : '本地等够后收尾'}，认出 ${s.text.length} 个字，用时 ${((Date.now() - s.born) / 1000).toFixed(1)} 秒`);
+      if (!String(sid).startsWith('test-')) console.log(`[语音识别] 流式一句：${s.name ? s.name : s.res === 'volc.seedasr.sauc.duration' ? '豆包流式识别 2.0' : s.res === 'volc.bigasr.sauc.duration' ? '豆包流式识别 1.0' : '没连上'}，${s.error ? '出错' : s.definite && !last ? '豆包判断说完' : '本地等够后收尾'}，认出 ${s.text.length} 个字${last && !s.qw ? (s.waitedFinal ? '（等到了定稿）' : '（没等到定稿）') : ''}，用时 ${((Date.now() - s.born) / 1000).toFixed(1)} 秒`);
       endStream(sid);
     }
     return out;
@@ -799,6 +809,22 @@ ${PERSONA.replace('这个性格只体现在 say 里；task 是交给下属的任
         if (!r) return json(res, 410, { error: '这通电话已经结束了' });
         r.at = Date.now();
         for (let o = 0; o + 1 < pcm.length; o += 640) rtSend(r, rtFrame(200, r.sid, pcm.subarray(o, Math.min(pcm.length, o + 640))));   // 豆包建议每 20 毫秒一包
+        return json(res, 200, { ok: true });
+      }
+      // 页面听到了一句、但识别一个字都没出来：把这句录音留下（最多 20 句），以后查是哪一步认不出来。只存在这台服务器上。
+      if (route === '/miss') {
+        const audio = await readRaw(req, 3 * 1024 * 1024);
+        if (audio.length < 2000 || !ctx.asrFile) return json(res, 200, { ok: false });
+        const dir = path.join(path.dirname(ctx.asrFile), 'voice-miss');
+        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+        const pcm = audio.subarray(44);
+        let sum = 0, peak = 0;
+        for (let i = 0; i + 1 < pcm.length; i += 2) { const v = pcm.readInt16LE(i) / 32768; sum += v * v; if (Math.abs(v) > peak) peak = Math.abs(v); }
+        const seconds = pcm.length / 32000, rms = Math.sqrt(sum / Math.max(1, pcm.length / 2));
+        fs.writeFileSync(path.join(dir, new Date().toISOString().replace(/[:.]/g, '-') + '.wav'), audio, { mode: 0o600 });
+        const old = fs.readdirSync(dir).filter((f) => f.endsWith('.wav')).sort();
+        for (const f of old.slice(0, Math.max(0, old.length - 20))) fs.rmSync(path.join(dir, f), { force: true });
+        console.log(`[语音识别] 有一句听到了但没认出字：${seconds.toFixed(1)} 秒，平均音量 ${rms.toFixed(3)}，最大 ${peak.toFixed(2)}；录音已留存`);
         return json(res, 200, { ok: true });
       }
       if (route === '/stt') {
