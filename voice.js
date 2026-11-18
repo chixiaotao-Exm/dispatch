@@ -426,9 +426,44 @@ ${PERSONA.replace('这个性格只体现在 say 里；task 是交给下属的任
     for (const r of rts.values()) rtSay(r, it.speak);   // 端到端通话正开着：直接念给主人听
   }
 
+  // 把模型写的那段 JSON 读出来。三步：直接解析；把字符串里的真换行、制表符转义后再解析；还不行就按固定的字段顺序一项一项抠出来
+  //（字段顺序是提示词里规定的：action、bot、say、revise、restart、followUp、hangup、look、task）。
+  function readDecision(text) {
+    const src = String(text || ''), a = src.indexOf('{');
+    if (a < 0) return null;
+    const b = src.lastIndexOf('}'), body = b > a ? src.slice(a, b + 1) : src.slice(a);
+    try { return JSON.parse(body); } catch (e) { /* 试下一步 */ }
+    try {
+      let out = '', inStr = false, esc = false;
+      for (const ch of body) {
+        if (inStr) {
+          if (esc) { esc = false; out += ch; continue; }
+          if (ch === '\\') { esc = true; out += ch; continue; }
+          if (ch === '"') { inStr = false; out += ch; continue; }
+          out += ch === '\n' ? '\\n' : ch === '\r' ? '' : ch === '\t' ? ' ' : ch;
+        } else { if (ch === '"') inStr = true; out += ch; }
+      }
+      return JSON.parse(out);
+    } catch (e) { /* 试下一步 */ }
+    // 一项一项抠：字符串类的字段取"这个字段的开头"到"下一个字段的开头"之间的内容，里面有没转义的引号也不怕。
+    const keys = ['action', 'bot', 'say', 'revise', 'restart', 'followUp', 'hangup', 'look', 'task'];
+    const at = keys.map((k) => { const m = new RegExp('"' + k + '"\\s*:\\s*').exec(body); return m ? { k, start: m.index, value: m.index + m[0].length } : null; }).filter(Boolean).sort((x, y) => x.start - y.start);
+    if (!at.some((x) => x.k === 'action')) return null;
+    const unesc = (t) => t.replace(/\\n/g, '\n').replace(/\\t/g, ' ').replace(/\\r/g, '').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+    const got = {};
+    at.forEach((x, n) => {
+      let raw = body.slice(x.value, n + 1 < at.length ? at[n + 1].start : body.length).trim().replace(/,\s*$/, '');
+      if (n + 1 === at.length) raw = raw.replace(/\}\s*$/, '').trim();
+      if (raw.startsWith('"')) got[x.k] = unesc(raw.slice(1, raw.endsWith('"') && raw.length > 1 ? -1 : undefined));
+      else if (raw.startsWith('[')) { try { got[x.k] = JSON.parse(raw); } catch (e) { got[x.k] = (raw.match(/"(\w+)"/g) || []).map((v) => v.slice(1, -1)); } }
+      else got[x.k] = /^true/.test(raw) ? true : /^false/.test(raw) ? false : raw;
+    });
+    return got;
+  }
   function parse(text) {
     try {
-      const j = JSON.parse(String(text).slice(String(text).indexOf('{'), String(text).lastIndexOf('}') + 1));
+      const j = readDecision(text);
+      if (!j) return null;
       const action = ['reply', 'agent', 'bot', 'stop'].includes(j.action) ? j.action : null;
       if (!action) return null;
       return { action, revise: j.revise === true, restart: j.restart === true, bot: String(j.bot || '').trim(), followUp: j.followUp === true, hangup: j.hangup === true, look: (Array.isArray(j.look) ? j.look : []).filter((k) => ['site', 'srv', 'relay', 'music'].includes(k)).slice(0, 4), task: String(j.task || '').trim().slice(0, 6000), say: String(j.say || '').trim().slice(0, 600) };
@@ -501,7 +536,11 @@ ${PERSONA.replace('这个性格只体现在 say 里；task 是交给下属的任
     if (!r) r = await ceoCall(PROMPT, JSON.stringify(input), 900);
     if (inCall) console.log(`[通话] ${usedFast ? '快速模型 ' + (ctx.fastModel || '') : 'CEO 主模型'}想了 ${((Date.now() - t0) / 1000).toFixed(1)} 秒${usedStream ? `（边想边说，${firstAt ? '第 ' + ((firstAt - t0) / 1000).toFixed(1) + ' 秒开始有话可念' : '没有提前念'}，${wasWarm ? '用的是待命的' : '临时启动的'}）` : ''}${useFast && !usedFast ? '（快速模型没答上来，换回了主模型）' : ''}`);
     const out = parse(r.text);
-    if (!out) return { action: 'reply', say: streamed || r.text.replace(/\s+/g, ' ').slice(0, 400), botList };
+    if (!out) {
+      const looksLikeCode = /^\s*[{\[]|"action"\s*:/.test(r.text);
+      if (looksLikeCode) console.log('[CEO] 这一句的决定没读出来（原文 ' + r.text.length + ' 字，开头：' + r.text.replace(/\s+/g, ' ').slice(0, 80) + '）');
+      return { action: 'reply', say: streamed || (looksLikeCode ? '这句话我没处理好，什么都还没派出去。你再说一遍。' : r.text.replace(/\s+/g, ' ').slice(0, 400)), botList };
+    }
     return { ...out, botList };
   }
 

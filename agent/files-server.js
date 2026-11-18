@@ -652,6 +652,7 @@ function askClaude(model, system, user) {
       cwd: LLM_DIR, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, HOME: AGENT_HOME, USER: 'agent', LOGNAME: 'agent' },
     });
     let out = '', err = '';
+    child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');   // 按文字读：一块一块拼字节会把中文字从中间切开
     const timer = setTimeout(() => child.kill('SIGKILL'), 90000);
     child.stdout.on('data', (c) => { if (out.length < 400000) out += c; });
     child.stderr.on('data', (c) => { if (err.length < 4000) err += c; });
@@ -711,6 +712,7 @@ function askClaudeStream(model, system, user, res) {
     const child = w.child;
     res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' });
     const send = (o) => { try { res.write(JSON.stringify(o) + '\n'); } catch (e) { /* 对方已经断开 */ } };
+    child.stdout.setEncoding('utf8');   // 按文字读：一块一块拼字节会把中文字从中间切开
     let buf = '', text = '', finished = false;
     const finish = (o) => {
       if (finished) return;
