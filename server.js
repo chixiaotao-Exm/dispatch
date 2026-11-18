@@ -427,7 +427,7 @@ async function llmCall(model, system, user, maxTokens) {
   const res = await fetch(LLM.base + '/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + LLM.key },
-    body: JSON.stringify({ model: String(model).replace(/^relay:/, ''), max_tokens: maxTokens, temperature: 0.3, messages: [{ role: 'system', content: system }, { role: 'user', content: user }] }),
+    body: JSON.stringify({ model: String(model).replace(/^relay:/, ''), max_tokens: Math.max(Number(maxTokens) || 0, 4000), temperature: 0.3, messages: [{ role: 'system', content: system }, { role: 'user', content: user }] }),
     signal: AbortSignal.timeout(60000),
   });
   const body = await res.text();
@@ -472,11 +472,16 @@ function parseVerdict(text) {
     return ['allow', 'deny', 'ask'].includes(v) ? { verdict: v, reason: String(j.reason || '').slice(0, 200) } : null;
   } catch (e) { return null; }
 }
+// 主人指定"不需要审批"的密码（config.json 的 review.secretsWithoutApproval，按密码库里的名称精确匹配）。
+// 申请这些密码时不经过 CEO 判断，直接放行；每一次仍然会记进 CEO 的记录里，主人随时能看到谁在什么时候用了。
+const SECRETS_NO_REVIEW = ((cfg.review && cfg.review.secretsWithoutApproval) || []).map((x) => String(x).trim()).filter(Boolean);
 async function reviewOne(r, rules) {
   const isSecret = r.kind === 'secret';
+  const exempt = isSecret && SECRETS_NO_REVIEW.includes(String(r.secret || '').trim());
   const REVIEW_PROMPT = isSecret ? SECRET_PROMPT : COMMAND_PROMPT;
   let out;
-  try {
+  if (exempt) out = { verdict: 'allow', reason: '主人设定这条密码不需要审批' };
+  else try {
     const input = isSecret
       ? { 申请者: r.agent === 'auto' ? '自动化 Agent' : '专用 Agent', 密码名称: r.secret, 主人登记的用途: r.secretNote || '（没有登记）', 声明的理由: r.why || '（没有说明）', 过去一小时已申请同一条的次数: r.recentAsks || 0 }
       : { 提交者: r.agent === 'auto' ? '自动化 Agent' : '专用 Agent', 服务器: r.label, 命令: r.command, 声明的理由: r.why || '（没有说明）', 主人的禁止规则: rules };
